@@ -1,2 +1,2 @@
 # tous-a-bord-data
- Script to collect AOM data
+Application d'accès aux données publiques (tarifs, critères et ressort territorial des Administration Organisatrices de la Mobilité.
