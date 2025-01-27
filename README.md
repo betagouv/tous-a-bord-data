@@ -40,7 +40,7 @@ cp .env.example .env
 
 # Initialiser et activez l'environnement Python
 python -m venv tab-env
-. tab-env/bin/activate
+source tab-env/bin/activate
 
 # Installer les packages nécessaires
 pip install -r requirements.txt
