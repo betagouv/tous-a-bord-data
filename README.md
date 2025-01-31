@@ -44,17 +44,6 @@ docker compose version
 
 ### Configuration de l'environnement de développement
 
-1. Mettre à jour le PATH système (si nécessaire sur Mac/Linux) :
-
-````bash
-# Sur Mac avec zsh :
-echo 'export PATH="/Users/$USER/Library/Python/3.9/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-
-# Sur Linux ou Mac avec bash :
-echo 'export PATH="/Users/$USER/Library/Python/3.9/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
 1. Créer et activer un environnement virtuel :
 
 ```bash
@@ -64,7 +53,7 @@ echo 'export PATH="/Users/$USER/Library/Python/3.9/bin:$PATH"' >> tab/bin/activa
 source tab/bin/activate
 # Sur Windows :
 .\tab\Scripts\activate
-````
+```
 
 # Sur Windows :
 
