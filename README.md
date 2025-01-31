@@ -48,8 +48,6 @@ docker compose version
 
 ```bash
 python -m venv tab
-# Sur Linux/Mac :
-echo 'export PATH="/Users/$USER/Library/Python/3.9/bin:$PATH"' >> tab/bin/activate
 source tab/bin/activate
 # Sur Windows :
 .\tab\Scripts\activate
