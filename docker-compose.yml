@@ -10,6 +10,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - GRIST_API_KEY=${GRIST_API_KEY}
     depends_on:
       postgres:
         condition: service_healthy

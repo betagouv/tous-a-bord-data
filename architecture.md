@@ -28,7 +28,7 @@
 
 1. **Structurées** :
    - Fichier Excel de base (AOM/SIREN)
-   - Fichiers Excel de collecte manuelle (critères/tarifs)
+   - Fichiers Excel de collecte manuelle (critères/tarifs) sur grist
 2. **Non Structurées** :
    - Site Bannatic (données AOM)
    - Site France Mobilité (sociétés de transport)
