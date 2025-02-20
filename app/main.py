@@ -34,8 +34,6 @@ try:
 except Exception as e:
     st.error(f"Erreur de connexion à la base de données: {str(e)}")
 
-st.title("Explorateur des Autorités Organisatrices de Mobilité (AOM)")
-
 
 @st.cache_resource
 def init_grist_service():
@@ -46,14 +44,13 @@ def init_grist_service():
     )
 
 
-async def load_data():
+async def load_aoms():
+    """Charge et affiche les données des AOM."""
     try:
         grist_service = init_grist_service()
-
         aoms = await grist_service.get_aoms()
-        # Conversion des AOM en DataFrame
+
         df = pd.DataFrame([aom.model_dump() for aom in aoms])
-        # Affichage du tableau avec Streamlit
         st.dataframe(
             df,
             column_config={
@@ -74,14 +71,55 @@ async def load_data():
         )
         return aoms
     except Exception as e:
-        st.error(f"Erreur lors du chargement des données: {str(e)}")
+        st.error(f"Erreur lors du chargement des AOM: {str(e)}")
         return []
 
 
-if "aoms_data" not in st.session_state:
+async def load_communes():
+    """Charge et affiche les données des communes."""
     try:
-        st.session_state.aoms_data = asyncio.run(load_data())
+        grist_service = init_grist_service()
+        communes = await grist_service.get_communes()
+
+        df = pd.DataFrame([commune.model_dump() for commune in communes])
+        pop_col = "Population_totale_2019_Banatic_"
+
+        st.dataframe(
+            df,
+            column_config={
+                "Nom_membre": "Nom",
+                "N_INSEE": "INSEE",
+                pop_col: st.column_config.NumberColumn(
+                    "Population", format="%d"
+                ),
+                "Surface_km2_": st.column_config.NumberColumn(
+                    "Surface (km²)",
+                    format="%.2f",
+                ),
+                "Nom_de_l_AOM": "AOM",
+            },
+            hide_index=True,
+        )
+        return communes
     except Exception as e:
-        msg = f"Erreur lors de l'initialisation des données: {str(e)}"
-        st.error(msg)
-        st.session_state.aoms_data = []
+        st.error(f"Erreur lors du chargement des communes: {str(e)}")
+        return []
+
+
+# Interface utilisateur
+st.title("Explorateur des Autorités Organisatrices de Mobilité (AOM)")
+
+# Sélecteur de données
+data_type = st.radio(
+    "Choisir les données à afficher",
+    ["AOM", "Communes"],
+    horizontal=True,
+)
+
+# Chargement des données selon la sélection
+if data_type == "AOM":
+    if "aoms_data" not in st.session_state:
+        st.session_state.aoms_data = asyncio.run(load_aoms())
+else:
+    if "communes_data" not in st.session_state:
+        st.session_state.communes_data = asyncio.run(load_communes())

@@ -2,7 +2,7 @@ import logging
 from typing import List, Optional
 
 import requests
-from models.grist_models import AOM
+from models.grist_models import AOM, Commune
 
 
 class GristDataService:
@@ -47,7 +47,6 @@ class GristDataService:
             # logging.error(f"Response text: {response.text}")
             raise
 
-    '''
     async def get_communes(self) -> List[Commune]:
         """Récupère toutes les communes depuis Grist."""
         try:
@@ -55,21 +54,32 @@ class GristDataService:
             url = f"{base}/tables/Communes/records"
             response = requests.get(url, headers=self.headers)
             response.raise_for_status()
-            records = response.json()
-            return [Commune(**record) for record in records]
+            response.raise_for_status()
+            # Debug pour voir la structure
+            print("Response raw:", response.text)
+            data = response.json()
+            d = data["records"]
+            print("Response JSON:", data)
+            # Si data est une liste de records
+            if isinstance(data, list):
+                return [Commune.model_validate(rec["fields"]) for rec in data]
+            # Si data est un dict avec une clé 'records'
+            elif isinstance(data, dict) and "records" in data:
+                return [Commune.model_validate(rec["fields"]) for rec in d]
+            else:
+                raise ValueError(f"Format inattendu: {type(data)}")
+
         except Exception as e:
             logging.error(f"Erreur lors de la récupération des communes: {e}")
+            logging.error(f"Response text: {response.text}")
             raise
-    '''
 
     async def get_aom_by_siren(self, siren: int) -> Optional[AOM]:
         """Récupère une AOM spécifique par son SIREN."""
         aoms = await self.get_aoms()
         return next((aom for aom in aoms if aom.N_SIREN_AOM == siren), None)
 
-    '''
     async def get_communes_by_aom(self, siren_aom: int) -> List[Commune]:
         """Récupère toutes les communes d'une AOM."""
         communes = await self.get_communes()
         return [c for c in communes if c.N_SIREN_AOM == siren_aom]
-    '''
