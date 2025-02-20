@@ -2,7 +2,6 @@ import logging
 from typing import List, Optional
 
 import requests
-from grist_api import GristDocAPI
 from models.grist_models import AOM, Commune
 
 
@@ -11,25 +10,34 @@ class GristDataService:
         if not api_key:
             raise ValueError("La clé API Grist est requise")
 
-        base_url = "https://grist.numerique.gouv.fr/o/tous-a-bord"
-        self.api = GristDocAPI(
-            "jn4Z4deNRbM9",
-            server=base_url,
-            api_key=api_key,
-        )
+        self.base_url = "https://grist.numerique.gouv.fr/o/tous-a-bord"
+        self.doc_id = "jn4Z4deNRbM9MyGBpCK5Jk"
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
 
     async def get_aoms(self) -> List[AOM]:
         """Récupère toutes les AOM depuis Grist."""
         try:
-            records = self.api.fetch_table("AOM")
-            return [AOM(**record) for record in records]
+            url = f"{self.base_url}/api/docs/{self.doc_id}/tables/AOM/records"
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            # Debug: afficher les données brutes
+            # print("Response raw:", response.text)
+            data = response.json()
+            # print("Response JSON:", data)
+            # records = self._process_grist_response(data)
+            # print("Processed records:", records)
+
+            # Retourner les records bruts sans typage pour debug
+            return data
+            # Commenté temporairement pour debug:
+            # return [AOM(**record) for record in records]
         except requests.exceptions.JSONDecodeError as e:
             logging.error(f"Erreur de décodage JSON: {e}")
-            logging.error(f"URL: {self.api._server}")
-            response_text = (
-                e.response.text if hasattr(e, "response") else "Pas de réponse"
-            )
-            logging.error(f"Réponse: {response_text}")
+            logging.error(f"URL: {url}")
+            # logging.error(f"Réponse: {response.text}")
             raise
         except Exception as e:
             logging.error(f"Erreur lors de la récupération des AOM: {e}")
@@ -37,8 +45,16 @@ class GristDataService:
 
     async def get_communes(self) -> List[Commune]:
         """Récupère toutes les communes depuis Grist."""
-        records = self.api.fetch_table("Communes")
-        return [Commune(**record) for record in records]
+        try:
+            base = f"{self.base_url}/api/docs/{self.doc_id}"
+            url = f"{base}/tables/Communes/records"
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            records = response.json()
+            return [Commune(**record) for record in records]
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération des communes: {e}")
+            raise
 
     async def get_aom_by_siren(self, siren: int) -> Optional[AOM]:
         """Récupère une AOM spécifique par son SIREN."""

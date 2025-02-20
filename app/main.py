@@ -41,14 +41,17 @@ def init_grist_service():
     load_dotenv()
     return GristDataService(
         api_key=os.getenv("GRIST_API_KEY"),
-        doc_id="jn4Z4deNRbM9",
+        doc_id="jn4Z4deNRbM9MyGBpCK5Jk",
     )
 
 
 async def load_data():
     try:
         grist_service = init_grist_service()
+        st.write("Connection grist service ok")
+
         aoms = await grist_service.get_aoms()
+        st.write("get_aoms() ok, aoms:", aoms)
         return aoms
     except Exception as e:
         st.error(f"Erreur lors du chargement des données: {str(e)}")
