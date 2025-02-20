@@ -59,7 +59,6 @@ class GristDataService:
             print("Response raw:", response.text)
             data = response.json()
             d = data["records"]
-            print("Response JSON:", data)
             # Si data est une liste de records
             if isinstance(data, list):
                 return [Commune.model_validate(rec["fields"]) for rec in data]
