@@ -1,6 +1,7 @@
 import asyncio
 import os
 
+import pandas as pd
 import psycopg2
 import streamlit as st
 from dotenv import load_dotenv
@@ -48,10 +49,29 @@ def init_grist_service():
 async def load_data():
     try:
         grist_service = init_grist_service()
-        st.write("Connection grist service ok")
 
         aoms = await grist_service.get_aoms()
-        st.write("get_aoms() ok, aoms:", aoms)
+        # Conversion des AOM en DataFrame
+        df = pd.DataFrame([aom.model_dump() for aom in aoms])
+        # Affichage du tableau avec Streamlit
+        st.dataframe(
+            df,
+            column_config={
+                "N_SIREN_AOM": "SIREN",
+                "Nom_de_l_AOM": "Nom",
+                "Region": "Région",
+                "Population_De_l_AOM": st.column_config.NumberColumn(
+                    "Population",
+                    help="Population de l'AOM",
+                    format="%d",
+                ),
+                "Surface_km2_": st.column_config.NumberColumn(
+                    "Surface (km²)",
+                    format="%.2f",
+                ),
+            },
+            hide_index=True,
+        )
         return aoms
     except Exception as e:
         st.error(f"Erreur lors du chargement des données: {str(e)}")
