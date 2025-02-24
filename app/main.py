@@ -1,12 +1,13 @@
 import asyncio
+import io
 import os
 
 import pandas as pd
 import psycopg2
+import requests
 import streamlit as st
+from constants.cerema_columns import AOM_MAPPING, COMMUNES_MAPPING
 from dotenv import load_dotenv
-
-# from models.grist_models import AOM, Commune  # Ajout de cette ligne
 from pgvector.psycopg2 import register_vector
 from services.grist_client import GristDataService
 
@@ -108,128 +109,113 @@ async def load_communes():
         return []
 
 
-# Interface utilisateur
-st.title("Explorateur des Autorités Organisatrices de Mobilité (AOM)")
+# Récupérer les données depuis le cerema
+url_donnees_cerema = (
+    "https://www.cerema.fr/fr/system/files?"
+    "file=documents/2023/04/base_rt_diffusion.ods"
+)
 
-# Sélecteur de données
+
+def load_cerema_data():
+    """Télécharge et formate les données CEREMA."""
+    url = url_donnees_cerema
+    try:
+        # Télécharger le fichier
+        response = requests.get(url)
+        excel_file = io.BytesIO(response.content)
+        aom_cerema = pd.read_excel(excel_file, engine="odf", sheet_name=0)
+        communes_cerema = pd.read_excel(excel_file, engine="odf", sheet_name=1)
+        # formatter le nom des variables
+        aom_cerema = aom_cerema.rename(columns=AOM_MAPPING)
+        communes_cerema = communes_cerema.rename(columns=COMMUNES_MAPPING)
+        return aom_cerema, communes_cerema
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des données CEREMA: {str(e)}")
+        return None
+
+
+# Interface utilisateur
+
+
+st.title(
+    "Moteur d'éligibilité aux tarifs sociaux" " et solidaires de la mobilité"
+)
+
+st.header("Source des données :")
+st.subheader("CEREMA")
+
+
+with st.container():
+    st.markdown(
+        """
+    Les données des AOMs hors régions et des communes proviennent du CEREMA
+    (Centre d'études et d'expertise sur les risques, l'environnement,
+    la mobilité et l'aménagement).
+    """
+    )
+    with st.expander("En savoir plus sur les AOM"):
+        st.markdown(
+            """
+        Une Autorité Organisatrice de la Mobilité (AOM) est l'acteur public
+        compétent pour l'organisation de la mobilité sur son territoire.
+        Elle a pour mission :
+        - L'organisation des services de transport public
+        - La gestion des services de mobilité active
+        - La contribution aux objectifs de lutte contre le changement
+        climatique
+        - Le développement des pratiques de mobilité durables et solidaires
+        """
+        )
+    with st.expander("Source des données"):
+        st.markdown(
+            """
+        📊 [Base de données des Autorités Organisatrices de la Mobilité (AOM)]
+        (https://www.cerema.fr/fr/actualites/liste-composition-autorites-organisatrices-mobilite-au-1er-4)
+        """
+        )
+    st.download_button(
+        label="📥 Télécharger les données brutes",
+        data=url_donnees_cerema,
+        file_name="base_rt_diffusion.ods",
+        mime="application/vnd.oasis.opendocument.spreadsheet",
+        help="Télécharger la base de données CEREMA au format ODS",
+    )
+    aom_cerema = load_cerema_data()
+    if aom_cerema is not None:
+        st.dataframe(
+            aom_cerema,
+            column_config={
+                "SIREN": st.column_config.TextColumn("SIREN"),
+                "Nom": st.column_config.TextColumn("Nom de l'AOM"),
+                "Population": st.column_config.NumberColumn(
+                    "Population", help="Population de l'AOM", format="%d"
+                ),
+                "Surface": st.column_config.NumberColumn(
+                    "Surface (km²)", format="%.2f"
+                ),
+            },
+            hide_index=True,
+        )
+
+st.subheader("France Mobilité")
+with st.container():
+    st.markdown(
+        """
+    Les données des AOMs régionales proviennent de France Mobilité
+    """
+    )
+    url = (
+        "https://www.francemobilites.fr/outils/"
+        "observatoire-politiques-locales-mobilite/aom"
+    )
+    # ajouter le champ de recherche "région" et exporter
+
+# Récupération des données du GRIST
 data_type = st.radio(
     "Choisir les données à afficher",
     ["AOM", "Communes"],
     horizontal=True,
 )
-
-if data_type == "AOM":
-    st.subheader("Statistiques des données existantes (Grist)")
-    # Création du DataFrame des AOM existantes
-    aoms_data = st.session_state.get("aoms_data", asyncio.run(load_aoms()))
-    df_existing = pd.DataFrame([aom.model_dump() for aom in aoms_data])
-    # Calcul des statistiques
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write("Nombre d'entrées uniques:")
-        stats = {
-            "N_SIREN_Groupement": df_existing["N_SIREN_Groupement"].nunique(),
-            "N_SIREN_AOM": df_existing["N_SIREN_AOM"].nunique(),
-            "Nom_de_l_AOM": df_existing["Nom_de_l_AOM"].nunique(),
-            "Commune_principale": (
-                df_existing["Commune_principale_De_l_AOM"].nunique()
-            ),
-            "Id_reseau": df_existing["Id_reseau"].nunique(),
-            "Population": df_existing["Population_De_l_AOM"].nunique(),
-            "Surface": df_existing["Surface_km2_"].nunique(),
-        }
-        st.write(pd.Series(stats))
-    with col2:
-        st.write("Nombre de valeurs non-nulles:")
-        non_null_stats = {
-            "N_SIREN_Groupement": (
-                df_existing["N_SIREN_Groupement"].notna().sum()
-            ),
-            "N_SIREN_AOM": df_existing["N_SIREN_AOM"].notna().sum(),
-            "Nom_de_l_AOM": df_existing["Nom_de_l_AOM"].notna().sum(),
-            "Commune_principale": df_existing["Commune_principale_De_l_AOM"]
-            .notna()
-            .sum(),
-            "Id_reseau": df_existing["Id_reseau"].notna().sum(),
-            "Population": df_existing["Population_De_l_AOM"].notna().sum(),
-            "Surface": df_existing["Surface_km2_"].notna().sum(),
-        }
-        st.write(pd.Series(non_null_stats))
-    # Ajout de statistiques descriptives pour Population et Surface
-    st.write("\nStatistiques descriptives:")
-    desc_stats = df_existing[
-        ["Population_De_l_AOM", "Surface_km2_"]
-    ].describe()
-    desc_stats.columns = ["Population", "Surface (km²)"]
-    st.write(desc_stats)
-    st.write(f"\nNombre total d'entrées: {len(df_existing)}")
-
-
-"""
-# Ajout du widget de chargement de fichier
-uploaded_file = st.file_uploader(
-    f"Charger un fichier pour mettre à jour la table {data_type}",
-    type=['csv', 'xlsx', 'xls']
-)
-
-if uploaded_file is not None:
-    try:
-        # Lecture du fichier selon son extension
-        if uploaded_file.name.endswith('.csv'):
-            df_new = pd.read_csv(uploaded_file)
-        else:
-            df_new = pd.read_excel(uploaded_file)
-        # Affichage des premières lignes du fichier chargé
-        st.subheader("Aperçu des données à importer")
-        st.dataframe(df_new.head())
-        # Récupération des colonnes depuis le modèle approprié
-        model_class = AOM if data_type == "AOM" else Commune
-        expected_columns = list(model_class.__annotations__.keys())
-        # Création du tableau de correspondance
-        st.subheader("Correspondance des colonnes")
-        # Création d'un DataFrame pour la correspondance
-        mapping_df = pd.DataFrame({
-            'Colonne attendue': expected_columns,
-            'Colonne du fichier': [''] * len(expected_columns)
-        })
-        # Ajout d'une colonne pour la sélection
-        file_columns = [''] + list(df_new.columns)  # Ajout d'une option vide
-        # Proposition automatique de correspondance basée sur la similarité
-        from difflib import get_close_matches
-        for idx, expected_col in enumerate(expected_columns):
-            matches = get_close_matches(
-                expected_col,
-                df_new.columns,
-                n=1,
-                cutoff=0.6
-            )
-            if matches:
-                mapping_df.loc[idx, 'Colonne du fichier'] = matches[0]
-        # Création d'un éditeur de tableau
-        edited_df = st.data_editor(
-            mapping_df,
-            column_config={
-                "Colonne attendue": st.column_config.TextColumn(
-                    "Colonne attendue",
-                    disabled=True,
-                ),
-                "Colonne du fichier": st.column_config.SelectboxColumn(
-                    "Colonne du fichier",
-                    options=file_columns,
-                    required=False
-                )
-            },
-            hide_index=True,
-        )
-        if st.button("Valider le mapping"):
-            # Stockage du mapping dans la session
-            st.session_state.column_mapping = dict(zip(
-                edited_df['Colonne du fichier'],
-                edited_df['Colonne attendue']
-            ))
-            st.success("Mapping enregistré!")
-    except Exception as e:
-        st.error(f"Erreur lors de la lecture du fichier: {str(e)}")
 
 # Chargement des données selon la sélection
 if data_type == "AOM":
@@ -238,4 +224,3 @@ if data_type == "AOM":
 else:
     if "communes_data" not in st.session_state:
         st.session_state.communes_data = asyncio.run(load_communes())
-"""
