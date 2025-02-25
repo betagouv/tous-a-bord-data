@@ -11,6 +11,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - GRIST_API_KEY=${GRIST_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}  # Ajout de cette ligne
       - STREAMLIT_SERVER_RUN_ON_SAVE=true
     depends_on:
       postgres:
