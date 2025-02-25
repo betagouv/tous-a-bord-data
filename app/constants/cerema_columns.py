@@ -1,6 +1,6 @@
 AOM_MAPPING = {
-    "N° SIREN AOM": "N_SIREN_AOM",
-    "Groupements 2023": "Nom de l'AOM",
+    "N° SIREN": "N_SIREN_AOM",
+    "Groupements 2023": "Nom_de_l_AOM",
     "Bassin de mobilité (1 champ)": "Bassin_de_mobilite",
     "Lien base BANATIC": "Lien_Banatic",
     "Id réseau": "Id_reseau",

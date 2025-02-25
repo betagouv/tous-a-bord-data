@@ -1,6 +1,6 @@
-import asyncio
 import io
 import os
+import time  # Ajout de l'import time
 
 import pandas as pd
 import psycopg2
@@ -120,23 +120,41 @@ def load_cerema_data():
     """Télécharge et formate les données CEREMA."""
     url = url_donnees_cerema
     try:
+        progress_bar = st.progress(0, "Téléchargement du fichier en cours...")
         # Télécharger le fichier
         response = requests.get(url)
         excel_file = io.BytesIO(response.content)
+        progress_bar.progress(30, "Chargement des données des AOM...")
+        # Charger et formater les données AOM
         aom_cerema = pd.read_excel(excel_file, engine="odf", sheet_name=0)
-        communes_cerema = pd.read_excel(excel_file, engine="odf", sheet_name=1)
-        # formatter le nom des variables
         aom_cerema = aom_cerema.rename(columns=AOM_MAPPING)
-        communes_cerema = communes_cerema.rename(columns=COMMUNES_MAPPING)
+        aom_cerema = aom_cerema.iloc[:, :-1]
+        progress_bar.progress(60, "Chargement des données des communes...")
+        # Charger et formater les données Communes
+        communes_cerema = pd.read_excel(excel_file, engine="odf", sheet_name=1)
+        colonnes_originales = communes_cerema.columns
+        COMMUNES_MAPPING_FIXED = {}
+        for col in colonnes_originales:
+            if "Nom de" in col and "AOM" in col:
+                COMMUNES_MAPPING_FIXED[col] = "Nom_de_l_AOM"
+            elif "Forme juridique" in col and "AOM" in col:
+                COMMUNES_MAPPING_FIXED[col] = "Forme_juridique_De_l_AOM"
+            elif col in COMMUNES_MAPPING:
+                COMMUNES_MAPPING_FIXED[col] = COMMUNES_MAPPING[col]
+        communes_cerema = communes_cerema.rename(
+            columns=COMMUNES_MAPPING_FIXED
+        )
+        communes_cerema = communes_cerema.replace("#RÉF !", None)
+        progress_bar.progress(100, "Chargement terminé !")
+        time.sleep(1)
+        progress_bar.empty()
         return aom_cerema, communes_cerema
     except Exception as e:
         st.error(f"Erreur lors du chargement des données CEREMA: {str(e)}")
-        return None
+        return None, None
 
 
 # Interface utilisateur
-
-
 st.title(
     "Moteur d'éligibilité aux tarifs sociaux" " et solidaires de la mobilité"
 )
@@ -166,6 +184,17 @@ with st.container():
         - Le développement des pratiques de mobilité durables et solidaires
         """
         )
+    aom_cerema, communes_cerema = load_cerema_data()
+    if aom_cerema is not None:
+        st.success("Données chargées avec succès!")
+        st.write("Données des AOM :")
+        st.dataframe(aom_cerema, hide_index=True)
+        # st.dataframe(aom_cerema.head())
+        st.write("Données des communes :")
+        st.dataframe(communes_cerema, hide_index=True)
+        # st.dataframe(communes_cerema.head())
+    else:
+        st.error("Erreur lors du chargement des données")
     with st.expander("Source des données"):
         st.markdown(
             """
@@ -173,54 +202,30 @@ with st.container():
         (https://www.cerema.fr/fr/actualites/liste-composition-autorites-organisatrices-mobilite-au-1er-4)
         """
         )
-    st.download_button(
-        label="📥 Télécharger les données brutes",
-        data=url_donnees_cerema,
-        file_name="base_rt_diffusion.ods",
-        mime="application/vnd.oasis.opendocument.spreadsheet",
-        help="Télécharger la base de données CEREMA au format ODS",
-    )
-    aom_cerema = load_cerema_data()
-    if aom_cerema is not None:
-        st.dataframe(
-            aom_cerema,
-            column_config={
-                "SIREN": st.column_config.TextColumn("SIREN"),
-                "Nom": st.column_config.TextColumn("Nom de l'AOM"),
-                "Population": st.column_config.NumberColumn(
-                    "Population", help="Population de l'AOM", format="%d"
-                ),
-                "Surface": st.column_config.NumberColumn(
-                    "Surface (km²)", format="%.2f"
-                ),
-            },
-            hide_index=True,
-        )
+# st.subheader("France Mobilité")
+# with st.container():
+#     st.markdown(
+#         """
+#     Les données des AOMs régionales proviennent de France Mobilité
+#     """
+#     )
+#     url = (
+#         "https://www.francemobilites.fr/outils/"
+#         "observatoire-politiques-locales-mobilite/aom"
+#     )
+#     # ajouter le champ de recherche "région" et exporter
 
-st.subheader("France Mobilité")
-with st.container():
-    st.markdown(
-        """
-    Les données des AOMs régionales proviennent de France Mobilité
-    """
-    )
-    url = (
-        "https://www.francemobilites.fr/outils/"
-        "observatoire-politiques-locales-mobilite/aom"
-    )
-    # ajouter le champ de recherche "région" et exporter
+# # Récupération des données du GRIST
+# data_type = st.radio(
+#     "Choisir les données à afficher",
+#     ["AOM", "Communes"],
+#     horizontal=True,
+# )
 
-# Récupération des données du GRIST
-data_type = st.radio(
-    "Choisir les données à afficher",
-    ["AOM", "Communes"],
-    horizontal=True,
-)
-
-# Chargement des données selon la sélection
-if data_type == "AOM":
-    if "aoms_data" not in st.session_state:
-        st.session_state.aoms_data = asyncio.run(load_aoms())
-else:
-    if "communes_data" not in st.session_state:
-        st.session_state.communes_data = asyncio.run(load_communes())
+# # Chargement des données selon la sélection
+# if data_type == "AOM":
+#     if "aoms_data" not in st.session_state:
+#         st.session_state.aoms_data = asyncio.run(load_aoms())
+# else:
+#     if "communes_data" not in st.session_state:
+#         st.session_state.communes_data = asyncio.run(load_communes())
