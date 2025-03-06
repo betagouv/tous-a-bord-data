@@ -10,5 +10,5 @@ URL_FRANCE_MOBILITE = (
 
 URL_TRANSPORT_GOUV = (
     "https://transport.data.gouv.fr/datasets/"
-    "liste-des-autorites-organisatrices-de-la-mobilite-aom"
+    "liste-et-composition-des-autorites-organisatrices-de-la-mobilite-aom"
 )

@@ -2,9 +2,38 @@ import asyncio
 import os
 
 import pandas as pd
+import psycopg2
 import streamlit as st
+
+# from constants.cerema_columns import AOM_MAPPING, COMMUNES_MAPPING
 from dotenv import load_dotenv
+from pgvector.psycopg2 import register_vector
 from services.grist_client import GristDataService
+
+# Configuration de la page Streamlit (DOIT ÊTRE EN PREMIER)
+st.set_page_config(
+    page_title=("Base de données des critères d'éligibilité par AOM"),
+    page_icon="🚌",
+)
+
+
+def get_database_connection():
+    conn = psycopg2.connect(
+        host=os.environ["POSTGRES_HOST"],
+        database=os.environ["POSTGRES_DB"],
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
+    )
+    register_vector(conn)
+    return conn
+
+
+try:
+    conn = get_database_connection()
+    st.success("Connexion à la base de données réussie!")
+    conn.close()
+except Exception as e:
+    st.error(f"Erreur de connexion à la base de données: {str(e)}")
 
 
 @st.cache_resource
@@ -43,7 +72,7 @@ def filter_dataframe(df: pd.DataFrame, search_term: str) -> pd.DataFrame:
     return df[mask]
 
 
-st.title("Informations de tarification")
+st.title("Base de données des critères d'éligibilité par AOM")
 
 # Chargement initial des données
 if "aoms_data" not in st.session_state:

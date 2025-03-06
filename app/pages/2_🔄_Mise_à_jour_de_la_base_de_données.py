@@ -1,44 +1,19 @@
-import os
-
 import pandas as pd
-import psycopg2
 import streamlit as st
 
 # from constants.cerema_columns import AOM_MAPPING, COMMUNES_MAPPING
 from constants.urls import URL_TRANSPORT_GOUV
-from pgvector.psycopg2 import register_vector
 
-# Configuration de la page Streamlit (DOIT ÊTRE EN PREMIER)
 st.set_page_config(
-    page_title="Explorateur des AOM",
-    page_icon="🚌",
-    layout="wide",
+    page_title="Mise à jour de la BDD",
+    page_icon="🔄",
 )
-
-
-def get_database_connection():
-    conn = psycopg2.connect(
-        host=os.environ["POSTGRES_HOST"],
-        database=os.environ["POSTGRES_DB"],
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-    )
-    register_vector(conn)
-    return conn
-
-
-try:
-    conn = get_database_connection()
-    st.success("Connexion à la base de données réussie!")
-    conn.close()
-except Exception as e:
-    st.error(f"Erreur de connexion à la base de données: {str(e)}")
 
 
 def process_uploaded_file(uploaded_file):
     """
     Traite le fichier téléchargé et retourne un DataFrame.
-    Gère les différents formats (CSV, Excel, ODS) et les onglets multiples.
+    Gère le format ODS et les onglets multiples.
     Args:
         uploaded_file: Le fichier téléchargé via st.file_uploader
     Returns:
@@ -47,21 +22,8 @@ def process_uploaded_file(uploaded_file):
     try:
         # Déterminer le type de fichier et le charger en conséquence
         file_extension = uploaded_file.name.split(".")[-1].lower()
-        if file_extension == "csv":
-            # Essayer différents séparateurs pour CSV
-            try:
-                df = pd.read_csv(uploaded_file, sep=";")
-            except pd.errors.EmptyDataError:
-                try:
-                    df = pd.read_csv(uploaded_file, sep=",")
-                except pd.errors.EmptyDataError:
-                    df = pd.read_csv(uploaded_file, sep="\t")
-        elif file_extension in ["xlsx", "xls", "ods"]:
-            # Pour les fichiers Excel/ODS, vérifier les onglets disponibles
-            if file_extension == "ods":
-                excel_file = pd.ExcelFile(uploaded_file, engine="odf")
-            else:
-                excel_file = pd.ExcelFile(uploaded_file)
+        if file_extension == "ods":
+            excel_file = pd.ExcelFile(uploaded_file, engine="odf")
             # Récupérer la liste des onglets
             sheet_names = excel_file.sheet_names
             if len(sheet_names) > 1:
@@ -98,11 +60,10 @@ def load_transport_gouv_data():
     st.markdown(
         """
     ##### Accès aux données des Autorités Organisatrices de la Mobilité (AOM)
-    Le site transport.data.gouv.fr ne permet pas l'intégration dans un iframe
-    pour des raisons de sécurité. Veuillez suivre ces étapes pour télécharger
-    les données :
+    Veuillez suivre ces étapes pour télécharger les données :
     1. Cliquez sur le lien ci-dessous pour ouvrir le site dans un nouvel onglet
     2. Téléchargez le fichier AOMs le plus récent depuis le site
+     (format accepté: ODS)
     3. Revenez sur cette page et importez le fichier téléchargé via le
        sélecteur ci-dessous
     """
@@ -125,7 +86,7 @@ def load_transport_gouv_data():
     st.markdown("### Importer les données téléchargées")
     uploaded_file = st.file_uploader(
         "Importez le fichier téléchargé depuis transport.data.gouv.fr",
-        type=["csv", "xlsx", "xls", "ods"],
+        type=["ods"],
     )
     if uploaded_file is not None:
         df = process_uploaded_file(uploaded_file)
@@ -138,9 +99,7 @@ def load_transport_gouv_data():
 
 
 # Interface utilisateur
-st.title(
-    "Moteur d'éligibilité aux tarifs sociaux" " et solidaires de la mobilité"
-)
+st.title("Procédure pour mettre à jour la base de données")
 
 st.header("Source des données :")
 st.subheader("Transport.gouv.fr")

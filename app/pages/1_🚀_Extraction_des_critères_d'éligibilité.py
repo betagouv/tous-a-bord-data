@@ -2,18 +2,19 @@ import base64
 import io
 import os
 
-import pandas as pd
+# import pandas as pd
 import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
-from PIL import Image
+
+# from PIL import Image
 
 load_dotenv()
 
-st.title("Extraction de tableaux depuis des images")
+st.title("Extraction des critères d'éligibilité")
 
 
-def ask_claude_to_extract_table(images):
+def ask_claude_to_extract_table_from_images(images):
     """Demande à Claude d'extraire et structurer les données du tableau."""
     try:
         # Préparer les images
@@ -66,30 +67,30 @@ def ask_claude_to_extract_table(images):
 
 
 # Upload des images
-uploaded_files = st.file_uploader(
-    "Choisissez une ou plusieurs images",
-    type=["png", "jpg", "jpeg"],
-    accept_multiple_files=True,
-)
-mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-if uploaded_files:
-    try:
-        # Charger toutes les images
-        images = [Image.open(file) for file in uploaded_files]
-        # Afficher les images individuelles
-        st.subheader("Images téléchargées")
-        cols = st.columns(min(len(images), 3))
-        for idx, (img, col) in enumerate(zip(images, cols), 1):
-            with col:
-                st.image(img, caption=f"Image {idx}", use_column_width=True)
-        # Extraire les données des tableaux
-        csv_data = ask_claude_to_extract_table(images)
-        # Convertir en DataFrame
-        df = pd.read_csv(io.StringIO(csv_data))
-        # Afficher le résultat
-        st.success("✅ Données extraites avec succès")
-        st.dataframe(df)
-    except Exception as e:
-        st.error(f"❌ Erreur lors du traitement : {str(e)}")
-else:
-    st.info("👆 Veuillez télécharger une ou plusieurs images")
+# uploaded_files = st.file_uploader(
+#     "Choisissez une ou plusieurs images",
+#     type=["png", "jpg", "jpeg"],
+#     accept_multiple_files=True,
+# )
+# mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# if uploaded_files:
+#     try:
+#         # Charger toutes les images
+#         images = [Image.open(file) for file in uploaded_files]
+#         # Afficher les images individuelles
+#         st.subheader("Images téléchargées")
+#         cols = st.columns(min(len(images), 3))
+#         for idx, (img, col) in enumerate(zip(images, cols), 1):
+#             with col:
+#                 st.image(img, caption=f"Image {idx}", use_column_width=True)
+#         # Extraire les données des tableaux
+#         csv_data = ask_claude_to_extract_table_from_images(images)
+#         # Convertir en DataFrame
+#         df = pd.read_csv(io.StringIO(csv_data))
+#         # Afficher le résultat
+#         st.success("✅ Données extraites avec succès")
+#         st.dataframe(df)
+#     except Exception as e:
+#         st.error(f"❌ Erreur lors du traitement : {str(e)}")
+# else:
+#     st.info("👆 Veuillez télécharger une ou plusieurs images")
