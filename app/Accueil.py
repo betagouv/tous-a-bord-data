@@ -1,12 +1,11 @@
-import io
 import os
-import time  # Ajout de l'import time
 
 import pandas as pd
 import psycopg2
-import requests
 import streamlit as st
-from constants.cerema_columns import AOM_MAPPING, COMMUNES_MAPPING
+
+# from constants.cerema_columns import AOM_MAPPING, COMMUNES_MAPPING
+from constants.urls import URL_TRANSPORT_GOUV
 from pgvector.psycopg2 import register_vector
 
 # Configuration de la page Streamlit (DOIT ÊTRE EN PREMIER)
@@ -36,49 +35,106 @@ except Exception as e:
     st.error(f"Erreur de connexion à la base de données: {str(e)}")
 
 
-# Récupérer les données depuis le cerema
-url_donnees_cerema = (
-    "https://www.cerema.fr/fr/system/files?"
-    "file=documents/2023/04/base_rt_diffusion.ods"
-)
-
-
-def load_cerema_data():
-    """Télécharge et formate les données CEREMA."""
-    url = url_donnees_cerema
+def process_uploaded_file(uploaded_file):
+    """
+    Traite le fichier téléchargé et retourne un DataFrame.
+    Gère les différents formats (CSV, Excel, ODS) et les onglets multiples.
+    Args:
+        uploaded_file: Le fichier téléchargé via st.file_uploader
+    Returns:
+        DataFrame pandas ou None en cas d'erreur
+    """
     try:
-        progress_bar = st.progress(0, "Téléchargement du fichier en cours...")
-        # Télécharger le fichier
-        response = requests.get(url)
-        excel_file = io.BytesIO(response.content)
-        progress_bar.progress(30, "Chargement des données des AOM...")
-        # Charger et formater les données AOM
-        aom_cerema = pd.read_excel(excel_file, engine="odf", sheet_name=0)
-        aom_cerema = aom_cerema.rename(columns=AOM_MAPPING)
-        aom_cerema = aom_cerema.iloc[:, :-1]
-        progress_bar.progress(60, "Chargement des données des communes...")
-        # Charger et formater les données Communes
-        communes_cerema = pd.read_excel(excel_file, engine="odf", sheet_name=1)
-        colonnes_originales = communes_cerema.columns
-        COMMUNES_MAPPING_FIXED = {}
-        for col in colonnes_originales:
-            if "Nom de" in col and "AOM" in col:
-                COMMUNES_MAPPING_FIXED[col] = "Nom_de_l_AOM"
-            elif "Forme juridique" in col and "AOM" in col:
-                COMMUNES_MAPPING_FIXED[col] = "Forme_juridique_De_l_AOM"
-            elif col in COMMUNES_MAPPING:
-                COMMUNES_MAPPING_FIXED[col] = COMMUNES_MAPPING[col]
-        communes_cerema = communes_cerema.rename(
-            columns=COMMUNES_MAPPING_FIXED
-        )
-        communes_cerema = communes_cerema.replace("#RÉF !", None)
-        progress_bar.progress(100, "Chargement terminé !")
-        time.sleep(1)
-        progress_bar.empty()
-        return aom_cerema, communes_cerema
+        # Déterminer le type de fichier et le charger en conséquence
+        file_extension = uploaded_file.name.split(".")[-1].lower()
+        if file_extension == "csv":
+            # Essayer différents séparateurs pour CSV
+            try:
+                df = pd.read_csv(uploaded_file, sep=";")
+            except pd.errors.EmptyDataError:
+                try:
+                    df = pd.read_csv(uploaded_file, sep=",")
+                except pd.errors.EmptyDataError:
+                    df = pd.read_csv(uploaded_file, sep="\t")
+        elif file_extension in ["xlsx", "xls", "ods"]:
+            # Pour les fichiers Excel/ODS, vérifier les onglets disponibles
+            if file_extension == "ods":
+                excel_file = pd.ExcelFile(uploaded_file, engine="odf")
+            else:
+                excel_file = pd.ExcelFile(uploaded_file)
+            # Récupérer la liste des onglets
+            sheet_names = excel_file.sheet_names
+            if len(sheet_names) > 1:
+                # S'il y a plusieurs onglets,
+                # permettre à l'utilisateur de choisir
+                selected_sheet = st.selectbox(
+                    "Sélectionnez un onglet:", sheet_names
+                )
+                if file_extension == "ods":
+                    df = pd.read_excel(
+                        uploaded_file, sheet_name=selected_sheet, engine="odf"
+                    )
+                else:
+                    df = pd.read_excel(
+                        uploaded_file, sheet_name=selected_sheet
+                    )
+            else:
+                # S'il n'y a qu'un seul onglet, le charger directement
+                if file_extension == "ods":
+                    df = pd.read_excel(uploaded_file, engine="odf")
+                else:
+                    df = pd.read_excel(uploaded_file)
+        st.success(f"Fichier {file_extension.upper()} chargé avec succès!")
+        return df
     except Exception as e:
-        st.error(f"Erreur lors du chargement des données CEREMA: {str(e)}")
-        return None, None
+        st.error(f"Erreur lors de la lecture du fichier: {str(e)}")
+        return None
+
+
+def load_transport_gouv_data():
+    """Affiche les informations pour télécharger les données AOM depuis
+    transport.data.gouv.fr."""
+    transport_data_url = URL_TRANSPORT_GOUV
+    st.markdown(
+        """
+    ##### Accès aux données des Autorités Organisatrices de la Mobilité (AOM)
+    Le site transport.data.gouv.fr ne permet pas l'intégration dans un iframe
+    pour des raisons de sécurité. Veuillez suivre ces étapes pour télécharger
+    les données :
+    1. Cliquez sur le lien ci-dessous pour ouvrir le site dans un nouvel onglet
+    2. Téléchargez le fichier AOMs le plus récent depuis le site
+    3. Revenez sur cette page et importez le fichier téléchargé via le
+       sélecteur ci-dessous
+    """
+    )
+    # Ajouter un lien direct vers le site
+    st.markdown(
+        f"""
+        <div style="text-align: center; margin: 20px 0;">
+            <a href="{transport_data_url}" target="_blank"
+               style="background-color: #4CAF50; color: white;
+                      padding: 10px 20px; text-decoration: none;
+                      border-radius: 5px; font-weight: bold;">
+                Ouvrir transport.data.gouv.fr dans un nouvel onglet
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    # Proposer un champ pour uploader un fichier
+    st.markdown("### Importer les données téléchargées")
+    uploaded_file = st.file_uploader(
+        "Importez le fichier téléchargé depuis transport.data.gouv.fr",
+        type=["csv", "xlsx", "xls", "ods"],
+    )
+    if uploaded_file is not None:
+        df = process_uploaded_file(uploaded_file)
+        if df is not None:
+            # Afficher un aperçu des données
+            st.write("Aperçu des données :")
+            st.dataframe(df.head(10))
+            return df
+    return None
 
 
 # Interface utilisateur
@@ -87,15 +143,15 @@ st.title(
 )
 
 st.header("Source des données :")
-st.subheader("CEREMA")
+st.subheader("Transport.gouv.fr")
 
 
 with st.container():
     st.markdown(
         """
-    Les données des AOMs hors régions et des communes proviennent du CEREMA
+    Les données des AOMs et des communes proviennent initialement du CEREMA
     (Centre d'études et d'expertise sur les risques, l'environnement,
-    la mobilité et l'aménagement).
+    la mobilité et l'aménagement) et sont reformattées par transport.gouv.fr.
     """
     )
     with st.expander("En savoir plus sur les AOM"):
@@ -111,34 +167,4 @@ with st.container():
         - Le développement des pratiques de mobilité durables et solidaires
         """
         )
-    aom_cerema, communes_cerema = load_cerema_data()
-    if aom_cerema is not None:
-        st.success("Données chargées avec succès!")
-        st.write("Données des AOM :")
-        st.dataframe(aom_cerema, hide_index=True)
-        # st.dataframe(aom_cerema.head())
-        st.write("Données des communes :")
-        st.dataframe(communes_cerema, hide_index=True)
-        # st.dataframe(communes_cerema.head())
-    else:
-        st.error("Erreur lors du chargement des données")
-    with st.expander("Source des données"):
-        st.markdown(
-            """
-        📊 [Base de données des Autorités Organisatrices de la Mobilité (AOM)]
-        (https://www.cerema.fr/fr/actualites/liste-composition-autorites-organisatrices-mobilite-au-1er-4)
-        """
-        )
-
-# st.subheader("France Mobilité")
-# with st.container():
-#     st.markdown(
-#         """
-#     Les données des AOMs régionales proviennent de France Mobilité
-#     """
-#     )
-#     url = (
-#         "https://www.francemobilites.fr/outils/"
-#         "observatoire-politiques-locales-mobilite/aom"
-#     )
-#     # ajouter le champ de recherche "région" et exporter
+    load_transport_gouv_data()
