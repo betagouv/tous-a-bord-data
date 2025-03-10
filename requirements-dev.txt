@@ -1,0 +1,6 @@
+# Python 3.9.x required
+black==24.3.0
+flake8==7.0.0
+isort==5.13.2
+pre-commit==4.1.0
+commitizen==3.18.4
