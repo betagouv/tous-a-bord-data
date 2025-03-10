@@ -18,6 +18,31 @@ load_dotenv()
 
 st.title("Extraction des critères d'éligibilité")
 
+# Vérification de la clé API Anthropic
+anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+if not anthropic_api_key:
+    st.error(
+        "❌ La clé API Anthropic n'est pas définie dans les variables "
+        "d'environnement."
+    )
+    st.info(
+        "Veuillez configurer la variable d'environnement " "ANTHROPIC_API_KEY."
+    )
+    st.stop()
+
+
+# Modification de l'initialisation du client Anthropic
+def get_anthropic_client():
+    """Crée et retourne un client Anthropic avec la clé API."""
+    try:
+        return Anthropic(api_key=anthropic_api_key)
+    except Exception as e:
+        st.error(
+            "❌ Erreur lors de l'initialisation du client Anthropic"
+            f": {str(e)}"
+        )
+        return None
+
 
 def ask_claude_to_extract_table_from_images(images):
     """Demande à Claude d'extraire et structurer les données du tableau."""
@@ -49,7 +74,10 @@ def ask_claude_to_extract_table_from_images(images):
                     },
                 }
             )
-        client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        client = get_anthropic_client()
+        if not client:
+            return "Erreur d'initialisation du client Anthropic"
+
         message = client.messages.create(
             model="claude-3-sonnet-20240229",
             max_tokens=4000,
@@ -110,26 +138,45 @@ async def scrape_aom_tarification(url, aom_name):
     Returns:
         dict: Données structurées extraites au format Markdown
     """
+    # Créer un conteneur pour afficher les captures d'écran en temps réel
+    live_container = st.empty()
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     if not url or pd.isna(url) or url.strip() == "":
         return {"error": "URL non définie pour cette AOM"}
     try:
         async with async_playwright() as p:
             # Lancer le navigateur
+            status_text.text("Lancement du navigateur...")
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
 
             # Accéder à la page
             try:
+                status_text.text(f"Accès à l'URL: {url}")
                 await page.goto(url, timeout=30000)
+                progress_bar.progress(10)
             except Exception as e:
                 await browser.close()
                 return {"error": f"Impossible d'accéder à l'URL: {str(e)}"}
 
             # Capturer le contenu initial et une capture d'écran
-            screenshot = await page.screenshot()
+            status_text.text("Capture de la page d'accueil...")
+            screenshot = await page.screenshot(full_page=True)
+            # Afficher la capture d'écran
+            live_container.image(
+                screenshot, caption="Page d'accueil", use_column_width=True
+            )
+            progress_bar.progress(20)
 
             # Utiliser LLM pour identifier les liens pertinents
-            client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+            status_text.text(
+                "Analyse de la page avec Claude pour identifier "
+                "les liens pertinents..."
+            )
+            client = get_anthropic_client()
+            if not client:
+                return {"error": "Erreur d'initialisation du client Anthropic"}
 
             # Préparation du contenu pour Claude
             content_for_llm = [
@@ -162,14 +209,14 @@ async def scrape_aom_tarification(url, aom_name):
 
             # Extraire les sélecteurs
             selectors = response.content[0].text.strip().split("\n")
+            status_text.text(f"Liens identifiés: {len(selectors)}")
+            progress_bar.progress(30)
 
             # Cliquer sur chaque lien identifié et capturer les écrans
-            all_screenshots = [
-                screenshot
-            ]  # Inclure la capture d'écran initiale
+            all_screenshots = [screenshot]
             page_titles = ["Page d'accueil"]
 
-            for selector in selectors:
+            for i, selector in enumerate(selectors):
                 try:
                     selector = selector.strip()
                     if not selector:
@@ -189,28 +236,43 @@ async def scrape_aom_tarification(url, aom_name):
                         f"document.querySelector(`{selector}`).textContent || "
                         f"'Page de tarification'"
                     )
-
+                    status_text.text(f"Navigation vers: {link_text.strip()}")
                     # Cliquer sur l'élément
                     await page.click(selector)
                     await page.wait_for_load_state(
                         "networkidle", timeout=10000
                     )
-
                     # Capturer la page après clic
                     new_screenshot = await page.screenshot(full_page=True)
                     all_screenshots.append(new_screenshot)
                     page_titles.append(link_text.strip())
+                    # Afficher la capture d'écran actuelle
+                    live_container.image(
+                        new_screenshot,
+                        caption=f"Page: {link_text.strip()}",
+                        use_column_width=True,
+                    )
+                    progress_value = 30 + min(
+                        50, (i + 1) * 50 // len(selectors)
+                    )
+                    progress_bar.progress(progress_value)
 
                     # Revenir à la page précédente
+                    status_text.text("Retour à la page précédente...")
                     await page.go_back()
                     await page.wait_for_load_state(
                         "networkidle", timeout=10000
                     )
-
                 except Exception as e:
+                    status_text.text(
+                        "Erreur lors du clic sur " f"{selector}: {e}"
+                    )
                     print(f"Erreur lors du clic sur {selector}: {e}")
 
             # Analyser les captures d'écran avec LLM
+            status_text.text("Analyse des captures d'écran avec Claude...")
+            progress_bar.progress(80)
+
             final_content = [
                 {
                     "type": "text",
@@ -264,6 +326,8 @@ async def scrape_aom_tarification(url, aom_name):
                 temperature=0,
                 messages=[{"role": "user", "content": final_content}],
             )
+            status_text.text("Extraction des informations terminée!")
+            progress_bar.progress(100)
             # Extraire le contenu Markdown
             markdown_content = final_response.content[0].text
             # Créer un dictionnaire structuré avec le contenu Markdown
@@ -274,7 +338,12 @@ async def scrape_aom_tarification(url, aom_name):
                 "extraction_date": datetime.datetime.now().strftime(
                     "%Y-%m-%d %H:%M:%S"
                 ),
+                "screenshots": all_screenshots,
+                "page_titles": page_titles,
             }
+            # Nettoyer les éléments d'interface temporaires
+            live_container.empty()
+            status_text.empty()
             await browser.close()
             return structured_data
     except Exception as e:
@@ -373,7 +442,20 @@ if selected_aom_name:
                     st.error(f"❌ {result['error']}")
                 else:
                     st.success("✅ Extraction réussie !")
+                    # Afficher une galerie des captures d'écran si disponibles
+                    if "screenshots" in result and "page_titles" in result:
+                        st.subheader(
+                            "Captures d'écran du processus" " de scraping"
+                        )
+                        tabs = st.tabs(result["page_titles"])
+                        for i, (tab, screenshot) in enumerate(
+                            zip(tabs, result["screenshots"])
+                        ):
+                            with tab:
+                                st.image(screenshot, use_column_width=True)
+
                     # Afficher le contenu Markdown
+                    st.subheader("Informations extraites")
                     st.markdown(result["markdown_content"])
                     # Informations sur la source
                     st.caption(
