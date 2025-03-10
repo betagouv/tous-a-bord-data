@@ -3,6 +3,7 @@ import streamlit as st
 
 # from constants.cerema_columns import AOM_MAPPING, COMMUNES_MAPPING
 from constants.urls import URL_TRANSPORT_GOUV
+from utils.parser_utils import format_column
 
 st.set_page_config(
     page_title="Mise à jour de la BDD",
@@ -26,6 +27,7 @@ def process_uploaded_file(uploaded_file):
             excel_file = pd.ExcelFile(uploaded_file, engine="odf")
             # Récupérer la liste des onglets
             sheet_names = excel_file.sheet_names
+            dataframes = {}
             if len(sheet_names) > 1:
                 # S'il y a plusieurs onglets,
                 # permettre à l'utilisateur de choisir
@@ -36,9 +38,15 @@ def process_uploaded_file(uploaded_file):
                     df = pd.read_excel(
                         uploaded_file, sheet_name=selected_sheet, engine="odf"
                     )
+                    # Formater les noms de colonnes (minuscules,
+                    # sans espaces ni caractères spéciaux)
+                    df.columns = [format_column(col) for col in df.columns]
+                    # Stocker le DataFrame formaté
+                    dataframes[selected_sheet] = df
                 else:
-                    df = pd.read_excel(
-                        uploaded_file, sheet_name=selected_sheet
+                    st.error(
+                        "Format de fichier non pris en charge. "
+                        "Veuillez télécharger un fichier ODS."
                     )
             else:
                 # S'il n'y a qu'un seul onglet, le charger directement
@@ -53,14 +61,13 @@ def process_uploaded_file(uploaded_file):
         return None
 
 
-def load_transport_gouv_data():
+def process_updaload_transport_gouv_data():
     """Affiche les informations pour télécharger les données AOM depuis
     transport.data.gouv.fr."""
     transport_data_url = URL_TRANSPORT_GOUV
     st.markdown(
         """
-    ##### Accès aux données des Autorités Organisatrices de la Mobilité (AOM)
-    Veuillez suivre ces étapes pour télécharger les données :
+    #### Procédure de mise à jour de la base de données
     1. Cliquez sur le lien ci-dessous pour ouvrir le site dans un nouvel onglet
     2. Téléchargez le fichier AOMs le plus récent depuis le site
      (format accepté: ODS)
@@ -83,7 +90,7 @@ def load_transport_gouv_data():
         unsafe_allow_html=True,
     )
     # Proposer un champ pour uploader un fichier
-    st.markdown("### Importer les données téléchargées")
+    st.markdown("#### Importer les données téléchargées")
     uploaded_file = st.file_uploader(
         "Importez le fichier téléchargé depuis transport.data.gouv.fr",
         type=["ods"],
@@ -99,18 +106,15 @@ def load_transport_gouv_data():
 
 
 # Interface utilisateur
-st.title("Procédure pour mettre à jour la base de données")
-
-st.header("Source des données :")
-st.subheader("Transport.gouv.fr")
-
-
 with st.container():
+    st.markdown("#### Source des données")
     st.markdown(
         """
-    Les données des AOMs et des communes proviennent initialement du CEREMA
+    Les données des AOMs (Autorités Organisatrices de la Mobilité) et des
+    communes proviennent initialement du **CEREMA**
     (Centre d'études et d'expertise sur les risques, l'environnement,
-    la mobilité et l'aménagement) et sont reformattées par transport.gouv.fr.
+    la mobilité et l'aménagement) et sont formattées
+    par **transport.gouv.fr**.
     """
     )
     with st.expander("En savoir plus sur les AOM"):
@@ -126,4 +130,4 @@ with st.container():
         - Le développement des pratiques de mobilité durables et solidaires
         """
         )
-    load_transport_gouv_data()
+    process_updaload_transport_gouv_data()

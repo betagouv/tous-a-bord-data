@@ -25,3 +25,11 @@ repos:
       - id: isort
         name: isort (python)
         args: ["--profile", "black", "--line-length", "79"]
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: system
+        types: [python]
+        pass_filenames: false

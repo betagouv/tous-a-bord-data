@@ -141,3 +141,10 @@ docker compose ps
 # Supprimer les conteneurs et les volumes
 docker compose down -v
 ```
+
+## Tests
+# Lancer les tests une fois
+pytest app/tests/test_dataframe_utils.py -v
+
+# Ou en mode watch pour le TDD
+pytest-watch app/tests/test_dataframe_utils.py
