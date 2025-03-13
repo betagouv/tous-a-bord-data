@@ -4,3 +4,5 @@ URL_TRANSPORT_GOUV = (
 )
 
 URL_PASSIM = "https://passim.info/pois/search?schema_name=OffreTransport"
+
+URL_TRANSPORT_GOUV_DATASETS = "https://transport.data.gouv.fr/api/datasets"

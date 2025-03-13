@@ -5,6 +5,8 @@ import streamlit as st
 
 # from constants.cerema_columns import AOM_MAPPING, COMMUNES_MAPPING
 from pgvector.psycopg2 import register_vector
+
+# from services.transport_gouv_client import filter_datasets_with_fares
 from utils.dataframe_utils import filter_dataframe
 from utils.grist_utils import get_aoms_data
 
@@ -70,3 +72,8 @@ st.dataframe(
     },
     hide_index=True,
 )
+
+
+# show the datasets with fares
+# datasets_with_fares = filter_datasets_with_fares()
+# st.write(datasets_with_fares)
