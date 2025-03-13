@@ -41,23 +41,36 @@ def process_transport_gouv_data(dataset_aoms):
             if len(sheet_names) < 2:
                 st.error("File must contain two sheets (AOM and communes)")
                 return None, None
+            # Specify dtype for n_insee column as string
+            dtype_specs = {"n_insee": str}
             dataset_aom = pd.read_excel(
-                tmp_path, sheet_name=sheet_names[0], engine="odf"
+                tmp_path,
+                sheet_name=sheet_names[0],
+                engine="odf",
+                dtype=dtype_specs,
             )
-            dataset_communes = pd.read_excel(
-                tmp_path, sheet_name=sheet_names[1], engine="odf"
+            dataset_com = pd.read_excel(
+                tmp_path,
+                sheet_name=sheet_names[1],
+                engine="odf",
+                dtype=dtype_specs,
             )
             dataset_aom.columns = [
                 format_column(col) for col in dataset_aom.columns
             ]
-            dataset_communes.columns = [
-                format_column(col) for col in dataset_communes.columns
+            dataset_com.columns = [
+                format_column(col) for col in dataset_com.columns
             ]
+            # Ensure n_insee is string type after column formatting
+            if "n_insee" in dataset_aom.columns:
+                dataset_aom["n_insee"] = dataset_aom["n_insee"].astype(str)
+            if "n_insee" in dataset_com.columns:
+                dataset_com["n_insee"] = dataset_com["n_insee"].astype(str)
             st.success(
-                "File loaded successfully! "
-                f"Sheets: {', '.join(sheet_names)}"
+                "File loaded successfully! Sheets: "
+                f"{', '.join(sheet_names)}"
             )
-            return dataset_aom, dataset_communes
+            return dataset_aom, dataset_com
         finally:
             os.unlink(tmp_path)
     except Exception as e:
