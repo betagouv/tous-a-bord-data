@@ -1,5 +1,22 @@
 import requests
-from constants.urls import URL_TRANSPORT_GOUV_DATASETS
+from constants.urls import URL_DATASET_AOM, URL_TRANSPORT_GOUV_DATASETS
+
+
+def get_transport_gouv_aom_dataset():
+    url = URL_DATASET_AOM
+    response = requests.get(url)
+    data = response.json()
+    # Filtrer les ressources au format ODS
+    ods_resources = [
+        r
+        for r in data.get("resources", [])
+        if r.get("format", "").lower() == "ods"
+    ]
+    if not ods_resources:
+        return None
+    # Trier par date de mise à jour et prendre la plus récente
+    latest_resource = max(ods_resources, key=lambda x: x.get("updated", ""))
+    return latest_resource
 
 
 def filter_datasets_with_fares():
