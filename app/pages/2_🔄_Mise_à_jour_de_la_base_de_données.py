@@ -192,3 +192,15 @@ if uploaded_file_csv is not None:
     if passim_df is not None:
         st.write("Aperçu des données :")
         st.dataframe(passim_df.head(5))
+
+# TODO
+# ok. A présent, j'ai besoin de faire une jointure sur une colonne qui est du
+# texte, il y a parfois quelques différences (c'est el nom des AOMs).
+# Une solution serait d'utiliser une distance de levenstein.
+# Mais je me dit qu'on pourrait utiliser la puissance des LLM pour faire le
+# rapprochement, un peu comme dans un RAG. J'ai déjà une base de données
+# postgres, dans laquelle j'ai installé pgvector. Ne pourrait-on pas utiliser
+# cette architecture pour faire la jointure dont j'ai besoin ?
+
+# Oui, c'est une excellente idée d'utiliser les embeddings et pgvector pour
+# faire une jointure "floue" sur les noms d'AOM
