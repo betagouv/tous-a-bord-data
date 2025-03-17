@@ -40,9 +40,7 @@ docker --version
 docker compose version
 ```
 
-## Installation
-
-### Configuration de l'environnement de développement
+## Configuration de l'environnement de développement
 
 1. Créer et activer un environnement virtuel :
 
@@ -53,27 +51,22 @@ source tab/bin/activate
 .\tab\Scripts\activate
 ```
 
-# Sur Windows :
-
-# Pas nécessaire car Python ajoute automatiquement les scripts au PATH lors de l'installation
-
-````
-
-3. Copier les variables d'environnement :
+2. Copier les variables d'environnement :
 
 ```bash
 cp .env.example .env
 ```
 
-4. Installer les outils de développement :
+3. Installer les outils de développement :
 
 ```bash
 python -m pip install --no-user -r requirements-dev.txt
 ```
 
-### Outils de développement
 
-#### pre-commit
+## Outils de développement
+
+1. pre-commit
 
 [Pre-commit](https://pre-commit.com/) permet de linter et formatter votre code avant chaque commit. Par défaut ici, il exécute :
 
@@ -93,7 +86,7 @@ Vous pouvez effectuer un premier passage sur tous les fichiers du repo avec :
 pre-commit run --all-files
 ```
 
-#### commitzen pour formatter les commits
+2. commitzen pour formatter les commits
 
 Commitizen est installé avec les autres outils de développement via `requirements-dev.txt`. Pour l'utiliser :
 
@@ -126,7 +119,9 @@ docker compose up -d
    - Si lancée en mode attaché : utilisez `Ctrl+C`
    - Si lancée en arrière-plan : `docker compose down`
 
-### Commandes Docker utiles
+## Commandes Docker utiles
+
+1. Commandes de base
 
 ```bash
 # Reconstruire les images
@@ -142,7 +137,7 @@ docker compose ps
 docker compose down -v
 ```
 
-### Gestion des volumes et des données PostgreSQL
+2. Gestion des volumes et des données PostgreSQL
 
 ```bash
 # Lister tous les volumes Docker
@@ -165,8 +160,15 @@ cat backup_20230101_120000.sql | docker exec -i postgres psql -U ${POSTGRES_USER
 ```
 
 ## Tests
-# Lancer les tests une fois
-pytest app/tests/test_parser_utils.py -v
 
-# Ou en mode watch pour le TDD
+1. Lancer les tests une fois
+
+```bash
+pytest app/tests/test_parser_utils.py -v
+```
+
+2. Ou en mode watch pour le TDD
+
+```bash
 pytest-watch app/tests/test_parser_utils.py
+```
