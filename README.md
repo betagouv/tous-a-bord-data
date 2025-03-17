@@ -42,7 +42,7 @@ docker compose version
 
 ## Configuration de l'environnement de développement
 
-1. Créer et activer un environnement virtuel :
+### Créer et activer un environnement virtuel :
 
 ```bash
 python -m venv tab
@@ -51,13 +51,13 @@ source tab/bin/activate
 .\tab\Scripts\activate
 ```
 
-2. Copier les variables d'environnement :
+### Copier les variables d'environnement :
 
 ```bash
 cp .env.example .env
 ```
 
-3. Installer les outils de développement :
+### Installer les outils de développement :
 
 ```bash
 python -m pip install --no-user -r requirements-dev.txt
@@ -66,7 +66,7 @@ python -m pip install --no-user -r requirements-dev.txt
 
 ## Outils de développement
 
-1. pre-commit
+### pre-commit
 
 [Pre-commit](https://pre-commit.com/) permet de linter et formatter votre code avant chaque commit. Par défaut ici, il exécute :
 
@@ -86,7 +86,7 @@ Vous pouvez effectuer un premier passage sur tous les fichiers du repo avec :
 pre-commit run --all-files
 ```
 
-2. commitzen pour formatter les commits
+### commitzen pour formatter les commits
 
 Commitizen est installé avec les autres outils de développement via `requirements-dev.txt`. Pour l'utiliser :
 
@@ -98,7 +98,7 @@ cz commit
 
 ## Lancement de l'application
 
-1. Démarrer l'application :
+### Démarrer l'application :
 
 ```bash
 docker compose up
@@ -110,18 +110,18 @@ Ou en arrière-plan :
 docker compose up -d
 ```
 
-2. Accéder à l'application :
+### Accéder à l'application :
 
    - Ouvrez votre navigateur
    - Accédez à [http://localhost:8501](http://localhost:8501)
 
-3. Arrêter l'application :
+### Arrêter l'application :
    - Si lancée en mode attaché : utilisez `Ctrl+C`
    - Si lancée en arrière-plan : `docker compose down`
 
 ## Commandes Docker utiles
 
-1. Commandes de base
+### Commandes de base
 
 ```bash
 # Reconstruire les images
@@ -137,7 +137,7 @@ docker compose ps
 docker compose down -v
 ```
 
-2. Gestion des volumes et des données PostgreSQL
+### Gestion des volumes et des données PostgreSQL
 
 ```bash
 # Lister tous les volumes Docker
@@ -161,13 +161,13 @@ cat backup_20230101_120000.sql | docker exec -i postgres psql -U ${POSTGRES_USER
 
 ## Tests
 
-1. Lancer les tests une fois
+### Lancer les tests une fois
 
 ```bash
 pytest app/tests/test_parser_utils.py -v
 ```
 
-2. Ou en mode watch pour le TDD
+### Ou en mode watch pour le TDD
 
 ```bash
 pytest-watch app/tests/test_parser_utils.py
