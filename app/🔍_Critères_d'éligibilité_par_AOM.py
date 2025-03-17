@@ -1,13 +1,20 @@
 import os
 
+import pandas as pd
 import psycopg2
 import streamlit as st
 
 # from constants.cerema_columns import AOM_MAPPING, COMMUNES_MAPPING
 from pgvector.psycopg2 import register_vector
+from sqlalchemy import create_engine
 
 # from services.transport_gouv_client import filter_datasets_with_fares
 from utils.dataframe_utils import filter_dataframe
+from utils.db_utils import (
+    check_tables_exist,
+    get_postgres_cs,
+    load_aoms_data_from_db,
+)
 from utils.grist_utils import get_aoms_data
 
 # Configuration de la page Streamlit (DOIT ÊTRE EN PREMIER)
@@ -35,27 +42,45 @@ try:
 except Exception as e:
     st.error(f"Erreur de connexion à la base de données: {str(e)}")
 
-# Chargement initial des données
-aoms_data = get_aoms_data()
+engine = create_engine(get_postgres_cs())
+check_tables_exist(engine)
+try:
+    # Try to load data from the database first
+    aoms_data = load_aoms_data_from_db()
+    if aoms_data is None or aoms_data.empty:
+        # If no data is found in the database, use Grist as fallback
+        st.warning(
+            "Aucune donnée trouvée dans la base de données. Veuillez "
+            "mettre à jour la base de données via l'onglet "
+            "'Mise à jour de la base de données'."
+        )
+        aoms_data = get_aoms_data()
+    else:
+        st.success("Données chargées depuis la base de données PostgreSQL.")
+    # Store the data in the session
+    st.session_state.aoms_data = aoms_data
+except Exception as e:
+    st.error(f"Erreur lors du chargement des données: {str(e)}")
+    st.session_state.aoms_data = pd.DataFrame()
 
 
-# Barre de recherche
+# Search bar
 search_term = st.text_input(
     "🔍 Rechercher dans toutes les colonnes",
     placeholder="Exemple : Bordeaux Métropole",
 )
 
-# Filtrer les données
+# Filter the data
 filtered_df = filter_dataframe(st.session_state.aoms_data, search_term)
 
-# Afficher le nombre de résultats
+# Display the number of results
 nb_results = len(filtered_df)
-first = f"{nb_results} résultat{'s' if nb_results > 1 else ''}"
-second = f"trouvé{'s' if nb_results > 1 else ''}"
+first = f"{nb_results} result{'s' if nb_results > 1 else ''}"
+second = f"found{'s' if nb_results > 1 else ''}"
 
 st.write(f"📊{first} {second}")
 
-# Afficher le tableau filtré
+# Display the filtered table
 st.dataframe(
     filtered_df,
     column_config={

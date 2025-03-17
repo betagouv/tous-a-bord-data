@@ -63,7 +63,7 @@ source tab/bin/activate
 
 ```bash
 cp .env.example .env
-````
+```
 
 4. Installer les outils de développement :
 
@@ -140,6 +140,28 @@ docker compose ps
 
 # Supprimer les conteneurs et les volumes
 docker compose down -v
+```
+
+### Gestion des volumes et des données PostgreSQL
+
+```bash
+# Lister tous les volumes Docker
+docker volume ls
+
+# Inspecter le volume PostgreSQL
+docker volume inspect aom-postgres-data
+
+# Supprimer un volume spécifique (attention: perte de données)
+docker volume rm aom-postgres-data
+
+# Supprimer tous les volumes non utilisés
+docker volume prune
+
+# Créer une sauvegarde (dump) de la base de données
+docker exec -t postgres pg_dump -U ${POSTGRES_USER:-postgres} ${POSTGRES_DB:-postgres} > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Restaurer une sauvegarde
+cat backup_20230101_120000.sql | docker exec -i postgres psql -U ${POSTGRES_USER:-postgres} ${POSTGRES_DB:-postgres}
 ```
 
 ## Tests

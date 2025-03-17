@@ -2,7 +2,7 @@ import requests
 from constants.urls import URL_DATASET_AOM, URL_TRANSPORT_GOUV_DATASETS
 
 
-def get_transport_gouv_aom_dataset():
+def get_aom_dataset():
     url = URL_DATASET_AOM
     response = requests.get(url)
     data = response.json()
