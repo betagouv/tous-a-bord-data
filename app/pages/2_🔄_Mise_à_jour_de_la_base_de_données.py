@@ -114,6 +114,7 @@ def process_uploaded_passim_csv(uploaded_file):
                     encoding="utf-8",
                     on_bad_lines="warn",
                 )
+                df.columns = [format_column(col) for col in df.columns]
                 st.success(
                     f"Fichier lu avec succès en utilisant"
                     f"le séparateur '{sep}'"
@@ -287,30 +288,15 @@ def populate_passim_table(passim_df, engine):
             col["name"] for col in inspector.get_columns("passim_aoms")
         ]
         # Mapping for Passim columns
-        passim_mapping = {
-            "type_d'usagers_-_tous": "type_usagers_tous",
-            "type_d'usagers_-_PMR": "type_usagers_pmr",
-            "type_d'usagers_-_faibles_revenus": "type_faibles_revenus",
-            "type_d'usagers_-_recherche_emplois": "type_recherche_emplois",
-            "type_d'usagers_-_soins_médicaux": "type_soins_medicaux",
-            "type_d'usagers_-_personnes_âgées": "type_personnes_agees",
-            "type_d'usagers_-_scolaires": "type_scolaires",
-            "type_d'usagers_-_touristes": "type_touristes",
-            "mode_de_transport_-_Autocar": "mode_autocar",
-            "mode_de_transport_-_Bateau": "mode_bateau",
-            "mode_de_transport_-_Bus": "mode_bus",
-            "mode_de_transport_-_Bus_navette": "mode_bus_navette",
-            "mode_de_transport_-_Funiculaire": "mode_funiculaire",
-            "mode_de_transport_-_Métro": "mode_metro",
-            "mode_de_transport_-_Taxi": "mode_taxi",
-            "mode_de_transport_-_Téléphérique": "mode_telepherique",
-            "mode_de_transport_-_Train": "mode_train",
-            "mode_de_transport_-_Tramway": "mode_tramway",
-            "territoire(s)_concerné(s)": "territoires_concernes",
-            "autorité": "autorite",
-            "identifiant_de_réseau_tcu": "identifiant_de_reseau_tcu",
-        }
+        passim_mapping = {"fiche_transbus_tc": "fiche_transbus", "id": "_id"}
         df_copy = passim_df.copy()
+        if "id" in df_copy.columns and "id" in db_columns:
+            if not pd.to_numeric(df_copy["id"], errors="coerce").notna().all():
+                st.warning(
+                    "La colonne 'id' contient des valeurs non-numériques. "
+                    "Génération de nouveaux IDs."
+                )
+                df_copy = df_copy.drop(columns=["id"])
         df_copy = df_copy.rename(
             columns={
                 k: v for k, v in passim_mapping.items() if k in df_copy.columns
@@ -324,8 +310,8 @@ def populate_passim_table(passim_df, engine):
                     .astype(str)
                     .apply(
                         lambda x: re.sub(r"[\r\n\t]", " ", x)
-                        if pd.notna(x)
-                        else x
+                        if pd.notna(x) and x != "nan"
+                        else None
                     )
                 )
         bool_columns = [
@@ -336,6 +322,8 @@ def populate_passim_table(passim_df, engine):
                 {True: "t", False: "f", None: "\\N"}
             )
         common_columns = [col for col in df_copy.columns if col in db_columns]
+        if "id" in common_columns:
+            common_columns.remove("id")
         df_filtered = df_copy[common_columns]
         ignored_columns = [
             col for col in df_copy.columns if col not in db_columns
@@ -488,14 +476,15 @@ if uploaded_file_csv is not None:
         st.dataframe(passim_df.head(5))
 
 # Section pour charger les données dans PostgreSQL
-st.header("Charger les données dans la base de données")
+st.header("Mise à jour des données")
 
-# Vérifier si les dataframes sont disponibles dans la session
 has_aoms_data = "aoms_df" in st.session_state
 has_communes_data = "communes_df" in st.session_state
 has_passim_data = "passim_df" in st.session_state
 
-# Afficher un résumé des données disponibles
+if "update_performed" not in st.session_state:
+    st.session_state.update_performed = False
+
 st.subheader("Résumé des données disponibles")
 
 col1, col2, col3 = st.columns(3)
@@ -509,6 +498,8 @@ with col1:
                     "✅ Données AOM chargées avec succès: "
                     f"{len(st.session_state.aoms_df)} lignes"
                 )
+                st.session_state.update_performed = True
+                st.rerun()
             else:
                 st.error("❌ Échec du chargement des données AOM")
     else:
@@ -526,6 +517,8 @@ with col2:
                     "✅ Données Communes chargées avec succès: "
                     f"{len(st.session_state.communes_df)} lignes"
                 )
+                st.session_state.update_performed = True
+                st.rerun()
             else:
                 st.error("❌ Échec du chargement des données Communes")
     else:
@@ -542,7 +535,12 @@ with col3:
                     "✅ Données Passim chargées avec succès: "
                     f"{len(st.session_state.passim_df)} lignes"
                 )
+                st.session_state.update_performed = True
+                st.rerun()
             else:
                 st.error("❌ Échec du chargement des données Passim")
     else:
         st.warning("❌ Données Passim: Non disponibles")
+
+if st.session_state.update_performed:
+    st.session_state.update_performed = False

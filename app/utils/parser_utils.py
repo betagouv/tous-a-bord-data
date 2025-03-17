@@ -44,7 +44,19 @@ def format_column(column_name):
     column_name = re.sub(
         r"\bl[_ ]?AOM\b", "aom", column_name, flags=re.IGNORECASE
     )
+    # Préserver certains mots spécifiques avant la mise en minuscules
+    special_words = {
+        r"\bBus\b": "bus",
+        r"\bDeux-roues\b": "deux_roues",
+    }
+    for pattern, replacement in special_words.items():
+        column_name = re.sub(
+            pattern, replacement, column_name, flags=re.IGNORECASE
+        )
     column_name = column_name.lower()
+    column_name = column_name.replace("_-_", "_")
+    column_name = column_name.replace("(s)", "s")
+
     # Remove French prepositions and articles using word boundaries
     prepositions = [
         r"\bl'",
@@ -63,6 +75,8 @@ def format_column(column_name):
     column_name = re.sub(
         r"[\'\/\\\-\.\,\:\;\|\+\#\&\%\(\)\[\]\{\}]", " ", column_name
     )
+    # Préserver les caractères spéciaux entre parenthèses comme (s)
+    column_name = re.sub(r"\(s\)", "_s", column_name)
     # Remove any remaining special characters
     column_name = re.sub(r"[^a-z0-9_ ]", "", column_name)
     column_name = re.sub(r"\s+", " ", column_name)
@@ -80,7 +94,21 @@ def format_column(column_name):
     # Handle numbers at start
     if column_name and column_name[0].isdigit():
         column_name = "col_" + column_name
-    # Singularize simple plural words
-    column_name = re.sub(r"([^s])s_", r"\1_", column_name)
-    column_name = re.sub(r"([^s])s$", r"\1", column_name)
+    # Do not singularize certain specific words
+    exceptions_singularize = [
+        "bus",
+        "deux_roues_motorises",
+        "usagers",
+        "territoires",
+    ]
+    # Check if the name contains words that should not be singularized
+    if any(exception in column_name for exception in exceptions_singularize):
+        return column_name
+    words = column_name.split("_")
+    for i, word in enumerate(words):
+        if word not in exceptions_singularize:
+            # Singularize simple plural words
+            if word.endswith("s") and len(word) > 1 and word[-2] != "s":
+                words[i] = word[:-1]
+    column_name = "_".join(words)
     return column_name

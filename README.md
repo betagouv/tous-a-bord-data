@@ -166,7 +166,7 @@ cat backup_20230101_120000.sql | docker exec -i postgres psql -U ${POSTGRES_USER
 
 ## Tests
 # Lancer les tests une fois
-pytest app/tests/test_dataframe_utils.py -v
+pytest app/tests/test_parser_utils.py -v
 
 # Ou en mode watch pour le TDD
-pytest-watch app/tests/test_dataframe_utils.py
+pytest-watch app/tests/test_parser_utils.py
