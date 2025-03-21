@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS communes (
     population_totale_2019_banatic INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS passim_aoms (
+CREATE TABLE IF NOT EXISTS transport_offers (
     id SERIAL PRIMARY KEY,
     metadata_title TEXT,
     last_update TIMESTAMP,
@@ -76,10 +76,11 @@ CREATE TABLE IF NOT EXISTS passim_aoms (
     mode_de_transport_train BOOLEAN,
     mode_de_transport_tramway BOOLEAN,
     notes TEXT,
-    territoires_concernes TEXT
+    territoires_concernes TEXT,
+    siren_matched_from_recherche_entreprises_api_gouv VARCHAR(9)
 );
 
 -- Create an index on the columns frequently used for joins
 CREATE INDEX IF NOT EXISTS idx_aoms_n_siren ON aoms(n_siren_aom);
 CREATE INDEX IF NOT EXISTS idx_communes_n_siren_aom ON communes(siren_membre);
-CREATE INDEX IF NOT EXISTS idx_passim_siren_aom ON passim_aoms(_id);
+CREATE INDEX IF NOT EXISTS idx_transport_offers_id ON transport_offers(_id);
