@@ -8,8 +8,6 @@ import pandas as pd
 import requests
 import streamlit as st
 from constants.urls import URL_DATASET_AOM_DOC, URL_PASSIM
-
-# from sentence_transformers import SentenceTransformer
 from services.transport_gouv_client import get_aom_dataset
 from sqlalchemy import create_engine, insert, inspect, text
 from utils.db_utils import get_postgres_cs
@@ -20,7 +18,6 @@ st.set_page_config(
     page_icon="🔄",
 )
 
-# Créer l'engine SQLAlchemy
 engine = create_engine(get_postgres_cs())
 
 

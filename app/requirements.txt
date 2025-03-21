@@ -12,3 +12,8 @@ pytest>=7.4.3,<8.0.0
 sqlalchemy>=2.0.0,<3.0.0
 numpy>=1.26.0,<2.0.0
 ratelimit
+duckduckgo-search
+fake-useragent
+beautifulsoup4
+selenium
+webdriver-manager
