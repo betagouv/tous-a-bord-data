@@ -74,7 +74,11 @@ if st.button("Rechercher les SIREN"):
 
     cs = get_postgres_cs()
     engine = create_engine(cs)
-    query_aoms = "SELECT nom_aom, n_siren_aom FROM aoms"
+    query_aoms = """
+    SELECT nom_aom, n_siren_aom, population_aom,
+    surface_km_2, nombre_commune_aom
+    FROM aoms
+    """
     df_aoms = pd.read_sql(query_aoms, engine)
 
     autorites_uniques = df["autorite"].dropna().unique()
@@ -107,9 +111,7 @@ if st.button("Rechercher les SIREN"):
             scores_dict[autorite] = score
             nom_aom_dict[autorite] = None
             source_siren_dict[autorite] = None
-    df["siren_matched_from_recherche_entreprises_api_gouv"] = df[
-        "autorite"
-    ].map(siren_dict)
+    df["n_siren_aom"] = df["autorite"].map(siren_dict)
     df["fuzzy_match_score"] = df["autorite"].map(scores_dict)
     df["nom_aom_matched"] = df["autorite"].map(nom_aom_dict)
     df["source_siren"] = df["autorite"].map(source_siren_dict)
@@ -123,16 +125,43 @@ if st.button("Rechercher les SIREN"):
     st.write("Analyse des correspondances avec la table AOMS :")
     # Number of total AOMs in the database
     total_aoms = df_aoms["n_siren_aom"].nunique()
+    total_population = df_aoms["population_aom"].sum()
+    total_surface = df_aoms["surface_km_2"].sum()
+    total_communes = df_aoms["nombre_commune_aom"].sum()
 
-    # Number of AOMs with at least one transport offer
-    # (fuzzy_match_score > 90)
-    aoms_avec_offres = df[
-        (df["fuzzy_match_score"] >= 90)
-        & (df["siren_matched_from_recherche_entreprises_api_gouv"].notna())
-    ]["siren_matched_from_recherche_entreprises_api_gouv"].nunique()
+    # Get AOMs with transport offers
+    aoms_with_offers = df[
+        (df["fuzzy_match_score"] >= 90) & (df["n_siren_aom"].notna())
+    ]["n_siren_aom"].unique()
 
+    # Calculate metrics for AOMs with offers
+    aoms_avec_offres = len(aoms_with_offers)
+    population_avec_offres = df_aoms[
+        df_aoms["n_siren_aom"].isin(aoms_with_offers)
+    ]["population_aom"].sum()
+    surface_avec_offres = df_aoms[
+        df_aoms["n_siren_aom"].isin(aoms_with_offers)
+    ]["surface_km_2"].sum()
+    communes_avec_offres = df_aoms[
+        df_aoms["n_siren_aom"].isin(aoms_with_offers)
+    ]["nombre_commune_aom"].sum()
+
+    # Calculate coverage rates
     taux_couverture = (
         (aoms_avec_offres / total_aoms) * 100 if total_aoms > 0 else 0
+    )
+    taux_population = (
+        (population_avec_offres / total_population) * 100
+        if total_population > 0
+        else 0
+    )
+    taux_surface = (
+        (surface_avec_offres / total_surface) * 100 if total_surface > 0 else 0
+    )
+    taux_communes = (
+        (communes_avec_offres / total_communes) * 100
+        if total_communes > 0
+        else 0
     )
 
     st.write(f"Nombre total d'AOMs dans la base : {total_aoms}")
@@ -141,6 +170,9 @@ if st.button("Rechercher les SIREN"):
         f"{aoms_avec_offres}"
     )
     st.write(f"Taux de couverture des AOMs : {taux_couverture:.2f}%")
+    st.write(f"Taux de couverture de la population : {taux_population:.2f}%")
+    st.write(f"Taux de couverture de la surface : {taux_surface:.2f}%")
+    st.write(f"Taux de couverture des communes : {taux_communes:.2f}%")
 
     # Save in the database
     try:
