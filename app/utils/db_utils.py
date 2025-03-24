@@ -30,7 +30,7 @@ def load_aoms_data_from_db():
                     WHERE table_name = 'aoms'
                 ) AND EXISTS (
                     SELECT FROM information_schema.tables
-                    WHERE table_name = 'passim_aoms'
+                    WHERE table_name = 'transport_offers'
                 );
             """
             )
@@ -48,7 +48,7 @@ def load_aoms_data_from_db():
             #     SELECT a.*, p.type_tarification, p.description_tarification,
             #            p.conditions_eligibilite, p.justificatifs, p.prix
             #     FROM aoms a
-            #     LEFT JOIN passim_aoms p ON a.n_siren = p.siren_aom
+            #     LEFT JOIN transport_offers p ON a.n_siren = p.siren_aom
             #     ORDER BY a.nom_aom
             # """)
             # df = pd.read_sql(query, conn)
@@ -77,9 +77,11 @@ def check_tables_exist(engine):
     try:
         inspector = inspect(engine)
         tables = inspector.get_table_names()
-        required_tables = ["aoms", "communes", "passim_aoms"]
+        required_tables = ["aoms", "communes", "transport_offers"]
         result = {table: table in tables for table in required_tables}
         return result
     except Exception as e:
         logging.error(f"Erreur lors de la vérification des tables: {str(e)}")
-        return {table: False for table in ["aoms", "communes", "passim_aoms"]}
+        return {
+            table: False for table in ["aoms", "communes", "transport_offers"]
+        }

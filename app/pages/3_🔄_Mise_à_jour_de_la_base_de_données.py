@@ -8,8 +8,6 @@ import pandas as pd
 import requests
 import streamlit as st
 from constants.urls import URL_DATASET_AOM_DOC, URL_PASSIM
-
-# from sentence_transformers import SentenceTransformer
 from services.transport_gouv_client import get_aom_dataset
 from sqlalchemy import create_engine, insert, inspect, text
 from utils.db_utils import get_postgres_cs
@@ -20,7 +18,6 @@ st.set_page_config(
     page_icon="🔄",
 )
 
-# Créer l'engine SQLAlchemy
 engine = create_engine(get_postgres_cs())
 
 
@@ -273,7 +270,7 @@ def populate_communes_table(df_communes, engine):
 
 def populate_passim_table(passim_df, engine):
     """
-    Populate passim_aoms table with optimized COPY method.
+    Populate transport_offers table with optimized COPY method.
     Args:
         passim_df: DataFrame with Passim data
         engine: SQLAlchemy engine
@@ -285,7 +282,7 @@ def populate_passim_table(passim_df, engine):
         # Get table columns from database
         inspector = inspect(engine)
         db_columns = [
-            col["name"] for col in inspector.get_columns("passim_aoms")
+            col["name"] for col in inspector.get_columns("transport_offers")
         ]
         # Mapping for Passim columns
         passim_mapping = {"fiche_transbus_tc": "fiche_transbus", "id": "_id"}
@@ -330,10 +327,11 @@ def populate_passim_table(passim_df, engine):
         ]
         if ignored_columns:
             st.info(
-                f"Ignored columns in passim_aoms: {', '.join(ignored_columns)}"
+                "Ignored columns in transport_offers: "
+                f"{', '.join(ignored_columns)}"
             )
         with engine.connect() as conn:
-            conn.execute(text("TRUNCATE TABLE passim_aoms;"))
+            conn.execute(text("TRUNCATE TABLE transport_offers;"))
             conn.commit()
             csv_buffer = io.StringIO()
             df_filtered.to_csv(
@@ -342,10 +340,13 @@ def populate_passim_table(passim_df, engine):
             csv_buffer.seek(0)
             cursor = conn.connection.cursor()
             cursor.copy_from(
-                csv_buffer, "passim_aoms", columns=common_columns, null="\\N"
+                csv_buffer,
+                "transport_offers",
+                columns=common_columns,
+                null="\\N",
             )
             conn.connection.commit()
-            req_passim = text("SELECT COUNT(*) FROM passim_aoms")
+            req_passim = text("SELECT COUNT(*) FROM transport_offers")
             passim_count = conn.execute(req_passim).scalar()
         st.success(
             f"Passim table updated successfully: {passim_count} records"
@@ -359,16 +360,14 @@ def populate_passim_table(passim_df, engine):
         return False
 
 
-# Afficher des informations sur les données actuellement dans la base
 st.header("Données actuellement dans la base")
 
 with st.expander("Voir les données actuelles"):
     try:
-        # Récupérer le nombre de lignes dans chaque table
         with engine.connect() as conn:
             query_AOM = text("SELECT COUNT(*) FROM aoms")
             query_communes = text("SELECT COUNT(*) FROM communes")
-            query_passim = text("SELECT COUNT(*) FROM passim_aoms")
+            query_passim = text("SELECT COUNT(*) FROM transport_offers")
             aoms_count = conn.execute(query_AOM).scalar()
             communes_count = conn.execute(query_communes).scalar()
             passim_count = conn.execute(query_passim).scalar()
@@ -392,7 +391,7 @@ with st.expander("Voir les données actuelles"):
         st.metric("Nombre d'enregistrements", passim_count)
         if passim_count > 0:
             passim_sample = pd.read_sql(
-                "SELECT * FROM passim_aoms LIMIT 5", engine
+                "SELECT * FROM transport_offers LIMIT 5", engine
             )
             st.dataframe(passim_sample)
     except Exception as e:
@@ -475,7 +474,6 @@ if uploaded_file_csv is not None:
         st.write("Aperçu des données :")
         st.dataframe(passim_df.head(5))
 
-# Section pour charger les données dans PostgreSQL
 st.header("Mise à jour des données")
 
 has_aoms_data = "aoms_df" in st.session_state

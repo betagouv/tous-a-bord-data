@@ -44,7 +44,7 @@ services:
 
 volumes:
   postgres-data:
-    name: aom-postgres-data
+    name: tab-postgres-data
 
 networks:
   app-network:

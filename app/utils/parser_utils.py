@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 def format_column(column_name):
     """
     Formate un nom de colonne en minuscules,
@@ -112,3 +115,24 @@ def format_column(column_name):
                 words[i] = word[:-1]
     column_name = "_".join(words)
     return column_name
+
+
+def normalize_string(s: str) -> str:
+    """Normalize a string to improve matching quality.
+    Args:
+        s: Input string to normalize
+    Returns:
+        Normalized string with lowercase, no special chars and clean spaces
+    """
+    if not isinstance(s, str) or pd.isna(s):
+        return s
+    return (
+        s.lower()
+        .replace("-", " ")
+        .replace("'", " ")
+        .replace("/", " ")
+        .replace("(", " ")
+        .replace(")", " ")
+        .strip()
+        .replace("  ", " ")
+    )

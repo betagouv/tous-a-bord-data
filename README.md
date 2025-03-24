@@ -133,6 +133,9 @@ docker compose logs -f
 # Voir l'état des conteneurs
 docker compose ps
 
+# Supprimer les conteneurs en conservant les volumes
+docker compose down
+
 # Supprimer les conteneurs et les volumes
 docker compose down -v
 ```
@@ -153,7 +156,7 @@ docker volume rm aom-postgres-data
 docker volume prune
 
 # Créer une sauvegarde (dump) de la base de données
-docker exec -t postgres pg_dump -U ${POSTGRES_USER:-postgres} ${POSTGRES_DB:-postgres} > backup_$(date +%Y%m%d_%H%M%S).sql
+docker exec -t tous-a-bord-data-postgres-1 pg_dump -U ${POSTGRES_USER:-postgres} ${POSTGRES_DB:-postgres} > backup_$(date +%Y%m%d_%H%M%S).sql
 
 # Restaurer une sauvegarde
 cat backup_20230101_120000.sql | docker exec -i postgres psql -U ${POSTGRES_USER:-postgres} ${POSTGRES_DB:-postgres}
