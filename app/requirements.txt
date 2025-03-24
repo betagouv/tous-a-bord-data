@@ -17,3 +17,4 @@ fake-useragent
 beautifulsoup4
 selenium
 webdriver-manager
+thefuzz

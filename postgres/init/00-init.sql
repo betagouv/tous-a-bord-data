@@ -77,7 +77,9 @@ CREATE TABLE IF NOT EXISTS transport_offers (
     mode_de_transport_tramway BOOLEAN,
     notes TEXT,
     territoires_concernes TEXT,
-    siren_matched_from_recherche_entreprises_api_gouv VARCHAR(9)
+    n_siren_aom VARCHAR(9),
+    fuzzy_match_score NUMERIC(5, 2),
+    source_siren TEXT
 );
 
 -- Create an index on the columns frequently used for joins
