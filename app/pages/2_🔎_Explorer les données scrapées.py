@@ -10,21 +10,60 @@ asyncio.set_event_loop(asyncio.new_event_loop())
 nest_asyncio.apply()
 
 # flake8: noqa: E402
-from crawl4ai import AsyncWebCrawler, BrowserConfig
+from crawl4ai import AsyncWebCrawler
+from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
+from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
+from crawl4ai.deep_crawling.filters import (
+    ContentTypeFilter,
+    FilterChain,
+    URLPatternFilter,
+)
+from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
+
+
+def clear_tarification_data():
+    conn = psycopg2.connect(get_postgres_cs())
+    cur = conn.cursor()
+    try:
+        #  Emptying the table
+        cur.execute("TRUNCATE TABLE tarification_raw;")
+        # Resetting the ID sequence
+        cur.execute("ALTER SEQUENCE tarification_raw_id_seq RESTART WITH 1;")
+        conn.commit()
+        st.success("Table tarification_raw emptied with success!")
+    except Exception as e:
+        st.error(f"Erreur lors du nettoyage de la table: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
+
 
 # Initialize session state variables
 if "stop_scraping" not in st.session_state:
     st.session_state.stop_scraping = False
 
 
-async def scrape_transport_sites(keywords, progress_callback=None):
-    """
-    Fonction de scraping pure qui accepte une callback optionnelle pour l'affichage
-    progress_callback: fonction qui prend en paramètres (idx, total, siren, url, nom_aom, success, content, error)
-    """
+async def scrape_transport_sites(
+    keywords,
+    progress_callback=None,
+    url_patterns=None,
+    max_pages=10,
+    score_threshold=0.1,
+    crawl_strategy="bestfirst",
+):
     conn = psycopg2.connect(get_postgres_cs())
     cur = conn.cursor()
     failed_urls = []
+
+    # Vider la table au début
+    try:
+        cur.execute("TRUNCATE TABLE tarification_raw;")
+        conn.commit()
+    except Exception as e:
+        st.error(f"Erreur lors du nettoyage de la table: {str(e)}")
+        cur.close()
+        conn.close()
+        return [], []
 
     cur.execute(
         """
@@ -36,113 +75,137 @@ async def scrape_transport_sites(keywords, progress_callback=None):
     """
     )
     sites = cur.fetchall()
-    total_sites = len(sites)
 
-    browser_config = BrowserConfig(
-        browser_type="chromium", headless=True, verbose=True
+    browser_config = BrowserConfig(verbose=True)
+    # Configuration du scorer
+    scorer = KeywordRelevanceScorer(keywords=keywords, weight=0.7)
+
+    # Configuration de la stratégie de crawling
+    strategy = BestFirstCrawlingStrategy(
+        max_depth=3,
+        include_external=False,
+        max_pages=max_pages,
+        url_scorer=scorer,
     )
 
-    results = []
+    # Configuration complète
+    config = CrawlerRunConfig(
+        deep_crawl_strategy=strategy,
+        word_count_threshold=10,  # Minimum de mots par bloc de contenu
+        exclude_external_links=True,  # Ne pas inclure les liens externes
+        remove_overlay_elements=True,  # Supprimer les popups/modals
+        process_iframes=True,  # Traiter le contenu des iframes
+        verbose=True,
+        stream=False,
+    )
+
+    results_list = []
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
         for idx, (siren, url, nom_aom) in enumerate(sites):
             if st.session_state.stop_scraping:
                 break
 
+            success = False
+            error = None
+            visited_urls_content = {}
+
+            st.write(
+                f"Démarrage du crawl pour {nom_aom} ({idx+1}/{len(sites)})"
+            )
+
             try:
-                result = await crawler.arun(url=url, search_terms=keywords)
+                # Ajout d'un délai entre chaque site
+                if idx > 0:
+                    await asyncio.sleep(2)
 
-                success = bool(
-                    result.markdown and len(result.markdown.strip()) > 1
-                )
-                content = result.markdown if success else None
-                error = None
+                results = await crawler.arun(url=url, config=config)
 
-                if success:
-                    cur.execute(
-                        """
-                        DELETE FROM tarification_raw
-                        WHERE n_siren_aom = %s AND url_source = %s
-                    """,
-                        (siren, url),
-                    )
+                if results and isinstance(results, list):
+                    st.write(f"Pages trouvées pour {nom_aom}: {len(results)}")
+                    for result in results:
+                        if result.success:
+                            visited_urls_content[result.url] = result.markdown
+                            cur.execute(
+                                """
+                                INSERT INTO tarification_raw
+                                (n_siren_aom, url_source, url_page, contenu_scrape)
+                                VALUES (%s, %s, %s, %s)
+                            """,
+                                (siren, url, result.url, result.markdown),
+                            )
 
-                    cur.execute(
-                        """
-                        INSERT INTO tarification_raw
-                        (n_siren_aom, url_source, contenu_scrape)
-                        VALUES (%s, %s, %s)
-                    """,
-                        (siren, url, result.markdown),
-                    )
                     conn.commit()
+                    success = bool(visited_urls_content)
                 else:
-                    failed_urls.append((nom_aom, url))
+                    st.write(f"Aucun résultat pour {nom_aom}")
 
             except Exception as e:
-                success = False
-                content = None
                 error = str(e)
+                st.write(f"Erreur pour {nom_aom}: {str(e)}")
                 failed_urls.append((nom_aom, url))
 
-            # Stocker le résultat
+            # Mise à jour des résultats
             current_result = {
                 "siren": siren,
                 "url": url,
                 "nom_aom": nom_aom,
                 "success": success,
-                "content": content,
+                "visited_urls": visited_urls_content,
                 "error": error,
             }
-            results.append(current_result)
+            results_list.append(current_result)
 
-            # Appeler la callback si elle existe
             if progress_callback:
-                progress_callback(
-                    idx,
-                    total_sites,
-                    siren,
-                    url,
-                    nom_aom,
-                    success,
-                    content,
-                    error,
-                )
+                progress_callback(idx, len(sites), current_result)
+
+            st.write(f"Fin du traitement pour {nom_aom}")
+            st.write("---")
 
     cur.close()
     conn.close()
-    return results, failed_urls
+    return results_list, failed_urls
 
 
-def streamlit_progress_callback(
-    idx, total, siren, url, nom_aom, success, content, error
-):
+def streamlit_progress_callback(idx, total, result):
     """Callback d'affichage pour Streamlit"""
     progress = (idx + 1) / total
     st.session_state.progress_bar.progress(progress)
 
-    (
-        status_col1,
-        status_col2,
-        status_col3,
-    ) = st.session_state.status_container.columns([2, 2, 1])
-    with status_col1:
-        st.write(f"**AOM:** {nom_aom}")
-    with status_col2:
-        st.markdown(f"[{url}]({url})")
-    with status_col3:
-        if success:
-            st.success("✓")
+    # Affichage principal de l'AOM
+    with st.expander(f"**{result['nom_aom']}** - {result['url']}"):
+        # Status de succès/échec
+        if result["success"]:
+            st.success("✓ Scraping réussi")
         else:
-            st.error("✗")
+            st.error("✗ Échec du scraping")
 
-    if success:
-        with st.expander(f"Contenu scrapé pour {nom_aom}"):
-            st.markdown(f"**URL:** [{url}]({url})")
-            st.markdown("---")
-            st.markdown(content)
-    elif error:
-        st.error(f"Erreur pour {url}: {error}")
+        if result["success"] and result.get("visited_urls"):
+            st.write(
+                f"**Nombre de pages trouvées:** {len(result['visited_urls'])}"
+            )
+
+            # Créer des tabs pour chaque URL visitée
+            tabs = st.tabs(
+                [f"Page {i+1}" for i in range(len(result["visited_urls"]))]
+            )
+
+            # Remplir chaque tab avec le contenu correspondant
+            for i, (visited_url, page_content) in enumerate(
+                result["visited_urls"].items()
+            ):
+                with tabs[i]:
+                    st.markdown(
+                        f"**URL source:** [{result['url']}]({result['url']})"
+                    )
+                    st.markdown(
+                        f"**URL visitée:** [{visited_url}]({visited_url})"
+                    )
+                    st.markdown("---")
+                    st.markdown(page_content)
+
+        elif result["error"]:
+            st.error(f"Erreur: {result['error']}")
 
 
 def display_scraping_results(results):
@@ -253,31 +316,67 @@ tab1, tab2, tab3 = st.tabs(["Scraping", "Diagnostic", "Exploration"])
 with tab1:
     st.subheader("Scraping intégral")
 
+    # Keywords input
     default_keywords = [
         "tarif",
         "tarification",
         "abonnement",
-        "ticket",
         "solidaire",
         "social",
         "reduction",
-        "transport",
     ]
     keywords_input = st.text_area(
         "Mots clés pour le scraping (un par ligne)",
         value="\n".join(default_keywords),
     )
 
-    col1, col2 = st.columns([1, 1])
+    # URL patterns input
+    default_patterns = [
+        "tarif",
+        "abonnement",
+        "prix",
+    ]
+    patterns_input = st.text_area(
+        "Patterns d'URLs à explorer (un par ligne)",
+        value="\n".join(default_patterns),
+    )
+
+    # Paramètres de crawling
+    col1, col2 = st.columns(2)
     with col1:
-        start_button = st.button("Lancer le scraping")
+        max_pages = st.number_input(
+            "Nombre maximum de pages à explorer", min_value=1, value=10
+        )
+        score_threshold = st.slider(
+            "Score minimum de pertinence",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.1,
+            step=0.1,
+        )
     with col2:
-        if st.button("Arrêter le scraping"):
+        crawl_strategy = st.selectbox(
+            "Stratégie d'exploration",
+            options=["bestfirst"],
+            help="bestfirst: exploration en profondeur",
+        )
+
+    # Boutons de contrôle
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        start_button = st.button("🚀 Lancer le scraping")
+    with col2:
+        stop_button = st.button("🛑 Arrêter")
+        if stop_button:
             st.session_state.stop_scraping = True
             st.warning("Arrêt du scraping demandé...")
 
     if start_button:
+        # Réinitialiser l'état d'arrêt
+        st.session_state.stop_scraping = False
+
         keywords = [k.strip() for k in keywords_input.split("\n") if k.strip()]
+        patterns = [p.strip() for p in patterns_input.split("\n") if p.strip()]
 
         # Créer les éléments d'interface et les stocker dans session_state
         st.session_state.progress_bar = st.progress(0)
@@ -288,7 +387,11 @@ with tab1:
                 loop = asyncio.get_event_loop()
                 results, failed_urls = loop.run_until_complete(
                     scrape_transport_sites(
-                        keywords, streamlit_progress_callback
+                        keywords=keywords,
+                        progress_callback=streamlit_progress_callback,
+                        max_pages=max_pages,
+                        score_threshold=score_threshold,
+                        crawl_strategy=crawl_strategy,
                     )
                 )
 
@@ -302,6 +405,14 @@ with tab1:
 
             except Exception as e:
                 st.error(f"Erreur pendant le scraping: {str(e)}")
+
+        # Après le scraping, réinitialiser l'état
+        st.session_state.stop_scraping = False
+
+        if not st.session_state.stop_scraping:
+            st.success("Scraping terminé!")
+        else:
+            st.info("Scraping arrêté par l'utilisateur")
 
 with tab2:
     st.subheader("Diagnostic des contenus vides")

@@ -3,9 +3,10 @@ CREATE TABLE IF NOT EXISTS tarification_raw (
     id SERIAL PRIMARY KEY,
     n_siren_aom VARCHAR(20),
     url_source TEXT,
+    url_page TEXT,
     contenu_scrape TEXT,
     date_scraping TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    embedding vector(1536)  -- Pour stocker les embeddings pour RAG
+    embedding vector(1536)
 );
 
 -- Table pour les tarifs structurés
@@ -28,5 +29,5 @@ CREATE TABLE IF NOT EXISTS criteres_eligibilite (
     embedding vector(1536)
 ); 
 
-CREATE INDEX IF NOT EXISTS idx_tarification_raw_siren ON tarification_raw(n_siren_aom);
+CREATE INDEX IF NOT EXISTS idx_tarification_raw_siren_url ON tarification_raw(n_siren_aom, url_page);
 CREATE INDEX IF NOT EXISTS idx_tarifs_siren ON tarifs(n_siren_aom);

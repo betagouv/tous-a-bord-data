@@ -27,3 +27,4 @@ langchain-cohere
 sentence-transformers
 transformers
 torch
+crawl4ai==0.5.0
