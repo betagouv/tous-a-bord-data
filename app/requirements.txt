@@ -18,3 +18,12 @@ beautifulsoup4
 selenium
 webdriver-manager
 thefuzz
+crawl4ai
+nest-asyncio
+langchain
+langchain-community
+langchain-anthropic
+langchain-cohere
+sentence-transformers
+transformers
+torch
