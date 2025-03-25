@@ -4,11 +4,13 @@ import nest_asyncio
 import pandas as pd
 import psycopg2
 import streamlit as st
-from crawl4ai import AsyncWebCrawler, BrowserConfig
 from utils.db_utils import get_postgres_cs
 
 asyncio.set_event_loop(asyncio.new_event_loop())
 nest_asyncio.apply()
+
+# flake8: noqa: E402
+from crawl4ai import AsyncWebCrawler, BrowserConfig
 
 
 async def scrape_transport_sites(keywords):
