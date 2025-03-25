@@ -47,7 +47,7 @@ async def scrape_transport_sites(
     keywords,
     progress_callback=None,
     url_patterns=None,
-    max_pages=10,
+    max_pages_per_site=10,
     score_threshold=0.1,
     crawl_strategy="bestfirst",
 ):
@@ -84,17 +84,17 @@ async def scrape_transport_sites(
     strategy = BestFirstCrawlingStrategy(
         max_depth=3,
         include_external=False,
-        max_pages=max_pages,
+        max_pages=max_pages_per_site,
         url_scorer=scorer,
     )
 
     # Configuration complète
     config = CrawlerRunConfig(
         deep_crawl_strategy=strategy,
-        word_count_threshold=10,  # Minimum de mots par bloc de contenu
-        exclude_external_links=True,  # Ne pas inclure les liens externes
-        remove_overlay_elements=True,  # Supprimer les popups/modals
-        process_iframes=True,  # Traiter le contenu des iframes
+        word_count_threshold=5,
+        exclude_external_links=True,
+        remove_overlay_elements=True,
+        process_iframes=True,
         verbose=True,
         stream=False,
     )
@@ -111,7 +111,7 @@ async def scrape_transport_sites(
             visited_urls_content = {}
 
             st.write(
-                f"Démarrage du crawl pour {nom_aom} ({idx+1}/{len(sites)})"
+                f"Démarrage du crawl pour {nom_aom} ({idx+1}/{len(sites)}) - Limite de {max_pages_per_site} pages"
             )
 
             try:
@@ -120,7 +120,6 @@ async def scrape_transport_sites(
                     await asyncio.sleep(2)
 
                 results = await crawler.arun(url=url, config=config)
-
                 if results and isinstance(results, list):
                     st.write(f"Pages trouvées pour {nom_aom}: {len(results)}")
                     for result in results:
@@ -344,8 +343,10 @@ with tab1:
     # Paramètres de crawling
     col1, col2 = st.columns(2)
     with col1:
-        max_pages = st.number_input(
-            "Nombre maximum de pages à explorer", min_value=1, value=10
+        max_pages_per_site = st.number_input(
+            "Nombre maximum de pages à explorer par site",
+            min_value=1,
+            value=10,
         )
         score_threshold = st.slider(
             "Score minimum de pertinence",
@@ -389,7 +390,7 @@ with tab1:
                     scrape_transport_sites(
                         keywords=keywords,
                         progress_callback=streamlit_progress_callback,
-                        max_pages=max_pages,
+                        max_pages_per_site=max_pages_per_site,
                         score_threshold=score_threshold,
                         crawl_strategy=crawl_strategy,
                     )
