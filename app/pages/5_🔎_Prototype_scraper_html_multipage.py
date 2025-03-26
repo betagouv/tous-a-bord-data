@@ -9,6 +9,8 @@ nest_asyncio.apply()
 
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CacheMode, CrawlerRunConfig
+from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
+from crawl4ai.deep_crawling import BFSDeepCrawlStrategy
 from utils.dataframe_utils import filter_dataframe
 from utils.db_utils import load_urls_data_from_db
 
@@ -17,6 +19,12 @@ async def scraper_multipage(url):
 
     browser_config = BrowserConfig(verbose=True)
 
+    strategy = BFSDeepCrawlStrategy(
+        max_depth=2,
+        max_pages=10,
+        include_external=False,
+    )
+
     run_config = CrawlerRunConfig(
         # Content filtering
         word_count_threshold=10,
@@ -24,8 +32,8 @@ async def scraper_multipage(url):
         # Content processing
         remove_overlay_elements=True,  # Remove popups/modals
         process_iframes=True,  # Process iframe content
-        # Cache control
-        cache_mode=CacheMode.ENABLED,  # Use cache if available
+        # Deep crawling
+        deep_crawl_strategy=strategy,
     )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -105,71 +113,87 @@ if selected_url:
         ):
             try:
                 loop = asyncio.get_event_loop()
-                result = loop.run_until_complete(scraper_multipage(url))
-                if not result.success:
-                    st.error(
-                        f"❌ Echec de l'extraction: {result.error_message}"
-                    )
-                with st.expander("Résultats de l'extraction", expanded=True):
-                    tab1, tab2, tab3, tab4 = st.tabs(
-                        ["Page 1", "Liens internes", "Fichiers pdf", "Images"]
-                    )
-                    with tab1:
-                        st.markdown(result.markdown)
-                    with tab2:
-                        if result.links and "internal" in result.links:
-                            st.markdown("##### Liens internes")
-                            internal_links = result.links["internal"]
-                            for link in internal_links:
-                                if link["text"]:
-                                    st.markdown(
-                                        f"- [{link['text']}]({link['href']})"
+                results = loop.run_until_complete(scraper_multipage(url))
+
+                # Créer un onglet par page
+                tabs = st.tabs([f"Page {i+1}" for i in range(len(results))])
+
+                for i, page in enumerate(results):
+                    with tabs[i]:
+                        # 1. Expander pour le contenu Markdown
+                        with st.expander("Contenu de la page", expanded=True):
+                            st.markdown(page.markdown)
+
+                        # 2. Expander pour les liens
+                        with st.expander("Liens trouvés"):
+                            if page.links and "internal" in page.links:
+                                st.markdown("##### Liens internes")
+                                internal_links = page.links["internal"]
+                                for link in internal_links:
+                                    if link["text"]:
+                                        st.markdown(
+                                            f"- [{link['text']}]({link['href']})"
+                                        )
+
+                            if page.links and "external" in page.links:
+                                st.markdown("##### Liens externes")
+                                external_links = page.links["external"]
+                                for link in external_links:
+                                    text = (
+                                        link["text"]
+                                        or link["title"]
+                                        or link["href"]
                                     )
-                    with tab3:
-                        # Section PDFs
-                        st.markdown("---")  # Séparateur
-                        st.subheader("Fichiers PDF")
-                        if result.media and "images" in result.media:
-                            pdf_files = [
-                                img
-                                for img in result.media["images"]
-                                if img.get("format") == "pdf"
-                            ]
-                            if pdf_files:
-                                for pdf in pdf_files:
-                                    st.markdown(f"- {pdf['desc']}")
+                                    st.markdown(f"- [{text}]({link['href']})")
+
+                        # 3. Expander pour les PDFs
+                        with st.expander("Fichiers PDF"):
+                            if page.media and "images" in page.media:
+                                pdf_files = [
+                                    img
+                                    for img in page.media["images"]
+                                    if img.get("format") == "pdf"
+                                ]
+                                if pdf_files:
+                                    for pdf in pdf_files:
+                                        st.markdown(
+                                            f"- [{pdf['desc'] or pdf['src']}]({pdf['src']})"
+                                        )
+                                else:
+                                    st.info("Aucun fichier PDF trouvé")
                             else:
                                 st.info("Aucun fichier PDF trouvé")
-                        else:
-                            st.info("Aucun fichier PDF trouvé")
-                    with tab4:
-                        # Section Images
-                        st.subheader("Images")
-                        if result.media and "images" in result.media:
-                            images = result.media["images"]
-                            # Filtrer les images uniques par group_id
-                            unique_images = {}
-                            for img in images:
-                                group_id = img["group_id"]
-                                if group_id not in unique_images or (
-                                    img["width"]
-                                    and unique_images[group_id]["width"]
-                                    and img["width"]
-                                    > unique_images[group_id]["width"]
-                                ):
-                                    unique_images[group_id] = img
 
-                            if unique_images:
-                                for img in unique_images.values():
-                                    with st.container():
-                                        st.image(
-                                            img["src"],
-                                            caption=img["desc"] or img["alt"],
-                                        )
+                        # 4. Expander pour les images
+                        with st.expander("Images"):
+                            if page.media and "images" in page.media:
+                                images = [
+                                    img
+                                    for img in page.media["images"]
+                                    if img.get("format") != "pdf"
+                                ]
+                                unique_images = {}
+                                for img in images:
+                                    group_id = img["group_id"]
+                                    if group_id not in unique_images or (
+                                        img["width"]
+                                        and unique_images[group_id]["width"]
+                                        and img["width"]
+                                        > unique_images[group_id]["width"]
+                                    ):
+                                        unique_images[group_id] = img
+
+                                if unique_images:
+                                    for img in unique_images.values():
+                                        with st.container():
+                                            st.image(
+                                                img["src"],
+                                                caption=img["desc"]
+                                                or img["alt"],
+                                            )
+                                else:
+                                    st.info("Aucune image trouvée")
                             else:
                                 st.info("Aucune image trouvée")
-                        else:
-                            st.info("Aucune image trouvée")
             except Exception as e:
                 st.error(f"❌ Une erreur s'est produite : {str(e)}")
-                st.info("Vérifiez que l'URL est correcte")
