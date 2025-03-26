@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 
 import nest_asyncio
 import streamlit as st
@@ -8,7 +10,7 @@ asyncio.set_event_loop(asyncio.new_event_loop())
 nest_asyncio.apply()
 
 from crawl4ai import AsyncWebCrawler
-from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
+from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, LLMConfig
 from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
 from crawl4ai.deep_crawling.filters import (
     ContentRelevanceFilter,
@@ -17,8 +19,17 @@ from crawl4ai.deep_crawling.filters import (
     URLPatternFilter,
 )
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
+from crawl4ai.extraction_strategy import LLMExtractionStrategy
+from pydantic import BaseModel, Field
 from utils.dataframe_utils import filter_dataframe
 from utils.db_utils import load_urls_data_from_db
+
+# help(LLMExtractionStrategy)
+
+# class Tarif(BaseModel):
+#     tarif: str = Field(description="Le tarif")
+#     abonnement: str = Field(description="La durée d'abonnement")
+#     conditions: str = Field(description="Les conditions du tarif")
 
 
 async def scraper_multipage(url, keywords):
@@ -43,7 +54,7 @@ async def scraper_multipage(url, keywords):
 
     scorer = KeywordRelevanceScorer(keywords=keywords, weight=1)
 
-    strategy = BestFirstCrawlingStrategy(
+    scraping_strategy = BestFirstCrawlingStrategy(
         max_depth=2,
         max_pages=10,
         include_external=False,
@@ -57,15 +68,28 @@ async def scraper_multipage(url, keywords):
         ),
     )
 
+    extraction_strategy = LLMExtractionStrategy(
+        instruction="Extraire 'tarif' le prix du transport, 'abonnement' la durée d'abonnement et 'conditions' les conditions d'éligibilité",
+        llm_config=LLMConfig(
+            provider="anthropic/claude-3-5-sonnet-20240620",
+            api_token=os.getenv("ANTHROPIC_API_KEY"),
+        ),
+        force_json_response=True,
+        # schema=Tarif.schema(),
+    )
+
     run_config = CrawlerRunConfig(
         # Content filtering
         word_count_threshold=10,
         exclude_external_links=True,
+        excluded_tags=["form", "header", "footer", "nav", "aside", "trafic"],
         # Content processing
         remove_overlay_elements=True,  # Remove popups/modals
         process_iframes=True,  # Process iframe content
-        # Deep crawling
-        deep_crawl_strategy=strategy,
+        # Scraping strategy for deep crawling
+        deep_crawl_strategy=scraping_strategy,
+        # Extraction strategy for content extraction
+        # extraction_strategy=extraction_strategy,
     )
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
@@ -73,7 +97,7 @@ async def scraper_multipage(url, keywords):
         return result
 
 
-st.title("Prototype du scraper multipage")
+st.title("Extraction multipages")
 
 aoms_urls_data = load_urls_data_from_db()
 
@@ -126,7 +150,6 @@ if selected_url:
     selected_url = filtered_df[
         filtered_df["site_web_principal"] == selected_url
     ].iloc[0]
-    st.write(f"### URL sélectionnée : {selected_url['site_web_principal']}")
     url = selected_url["site_web_principal"]
     if not url.startswith(("http://", "https://")):
         st.error("L'URL doit commencer par http:// ou https://")
@@ -137,7 +160,7 @@ if selected_url:
         help="Entrez les mots-clés qui vous intéressent pour filtrer les résultats",
     )
     scrape_button = st.button(
-        "🔍 Extraire les critères", use_container_width=True
+        "🔍 Extraire les informations de tarification", use_container_width=True
     )
 
 
@@ -161,6 +184,11 @@ if scrape_button:
 
             for i, page in enumerate(results):
                 with tabs[i]:
+                    # with st.expander("Contenu structuré de la page", expanded=True):
+                    #     st.markdown(f"{page.url}")
+                    #     structured_content = json.loads(page.extracted_content)
+                    #     st.json(structured_content)
+
                     # 1. Expander pour le contenu Markdown
                     with st.expander("Contenu de la page", expanded=True):
                         st.markdown(f"{page.url}")
