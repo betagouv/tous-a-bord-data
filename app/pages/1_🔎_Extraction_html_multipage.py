@@ -72,7 +72,7 @@ async def scrape_transport_sites(
         WHERE t.n_siren_aom IS NOT NULL
         AND t.site_web_principal IS NOT NULL
         ORDER BY t.autorite
-    """
+        """
     )
     sites = cur.fetchall()
 

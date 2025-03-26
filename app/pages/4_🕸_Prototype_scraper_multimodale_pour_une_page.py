@@ -99,36 +99,6 @@ def ask_claude_to_extract_table_from_images(images):
         raise
 
 
-# Upload des images
-# uploaded_files = st.file_uploader(
-#     "Choisissez une ou plusieurs images",
-#     type=["png", "jpg", "jpeg"],
-#     accept_multiple_files=True,
-# )
-# mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-# if uploaded_files:
-#     try:
-#         # Charger toutes les images
-#         images = [Image.open(file) for file in uploaded_files]
-#         # Afficher les images individuelles
-#         st.subheader("Images téléchargées")
-#         cols = st.columns(min(len(images), 3))
-#         for idx, (img, col) in enumerate(zip(images, cols), 1):
-#             with col:
-#                 st.image(img, caption=f"Image {idx}", use_column_width=True)
-#         # Extraire les données des tableaux
-#         csv_data = ask_claude_to_extract_table_from_images(images)
-#         # Convertir en DataFrame
-#         df = pd.read_csv(io.StringIO(csv_data))
-#         # Afficher le résultat
-#         st.success("✅ Données extraites avec succès")
-#         st.dataframe(df)
-#     except Exception as e:
-#         st.error(f"❌ Erreur lors du traitement : {str(e)}")
-# else:
-#     st.info("👆 Veuillez télécharger une ou plusieurs images")
-
-
 async def scrape_aom_tarification(url, aom_name):
     """
     Scrape les informations de tarification d'une AOM à partir de son URL.

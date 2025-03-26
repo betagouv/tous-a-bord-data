@@ -147,22 +147,10 @@ if st.button("Rechercher les SIREN"):
     ]["nombre_commune_aom"].sum()
 
     # Calculate coverage rates
-    taux_couverture = (
-        (aoms_avec_offres / total_aoms) * 100 if total_aoms > 0 else 0
-    )
-    taux_population = (
-        (population_avec_offres / total_population) * 100
-        if total_population > 0
-        else 0
-    )
-    taux_surface = (
-        (surface_avec_offres / total_surface) * 100 if total_surface > 0 else 0
-    )
-    taux_communes = (
-        (communes_avec_offres / total_communes) * 100
-        if total_communes > 0
-        else 0
-    )
+    taux_couverture = (aoms_avec_offres / total_aoms) * 100
+    taux_population = (population_avec_offres / total_population) * 100
+    taux_surface = (surface_avec_offres / total_surface) * 100
+    taux_communes = (communes_avec_offres / total_communes) * 100
 
     st.write(f"Nombre total d'AOMs dans la base : {total_aoms}")
     st.write(
@@ -171,6 +159,8 @@ if st.button("Rechercher les SIREN"):
     )
     st.write(f"Taux de couverture des AOMs : {taux_couverture:.2f}%")
     st.write(f"Taux de couverture de la population : {taux_population:.2f}%")
+    st.write(f"Population totale des AOMs : {total_population}")
+
     st.write(f"Taux de couverture de la surface : {taux_surface:.2f}%")
     st.write(f"Taux de couverture des communes : {taux_communes:.2f}%")
 
