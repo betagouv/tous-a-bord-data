@@ -24,8 +24,6 @@ from pydantic import BaseModel, Field
 from utils.dataframe_utils import filter_dataframe
 from utils.db_utils import load_urls_data_from_db
 
-# help(LLMExtractionStrategy)
-
 # class Tarif(BaseModel):
 #     tarif: str = Field(description="Le tarif")
 #     abonnement: str = Field(description="La durée d'abonnement")
@@ -34,7 +32,9 @@ from utils.db_utils import load_urls_data_from_db
 
 async def scraper_multipage(url, keywords):
 
-    browser_config = BrowserConfig(verbose=True)
+    browser_config = BrowserConfig(
+        verbose=True,
+    )
 
     url_filter = URLPatternFilter(
         patterns=[
