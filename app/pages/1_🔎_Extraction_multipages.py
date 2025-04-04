@@ -1,268 +1,115 @@
 import asyncio
-import json
-import os
 
 import nest_asyncio
 import streamlit as st
 
+# Initialize the event loop before importing crawl4ai
 # flake8: noqa: E402
-asyncio.set_event_loop(asyncio.new_event_loop())
 nest_asyncio.apply()
-
-from crawl4ai import AsyncWebCrawler
-from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, LLMConfig
-from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
-from crawl4ai.deep_crawling.filters import (
-    ContentRelevanceFilter,
-    FilterChain,
-    SEOFilter,
-    URLPatternFilter,
-)
-from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
-from crawl4ai.extraction_strategy import LLMExtractionStrategy
-from pydantic import BaseModel, Field
-from utils.dataframe_utils import filter_dataframe
+from utils.crawler_utils import CrawlerManager
 from utils.db_utils import load_urls_data_from_db
 
-# help(LLMExtractionStrategy)
-
-# class Tarif(BaseModel):
-#     tarif: str = Field(description="Le tarif")
-#     abonnement: str = Field(description="La durée d'abonnement")
-#     conditions: str = Field(description="Les conditions du tarif")
+st.title("Extraction multipages sur les AOMs")
 
 
-async def scraper_multipage(url, keywords):
+def toggle_crawling():
+    if "is_crawling" not in st.session_state:
+        st.session_state.is_crawling = False
 
-    browser_config = BrowserConfig(verbose=True)
-
-    url_filter = URLPatternFilter(
-        patterns=[
-            "*boutique*",
-            "*tarif*",
-            "*abonnement*",
-            "*ticket*",
-            "*pass*",
-            "*carte*",
-            "*titre*",
-        ]
-    )
-    relevance_filter = ContentRelevanceFilter(
-        query=" ".join(keywords), threshold=0.5
-    )
-    seo_filter = SEOFilter(threshold=0.5, keywords=keywords)
-
-    scorer = KeywordRelevanceScorer(keywords=keywords, weight=1)
-
-    scraping_strategy = BestFirstCrawlingStrategy(
-        max_depth=2,
-        max_pages=10,
-        include_external=False,
-        url_scorer=scorer,
-        filter_chain=FilterChain(
-            [
-                url_filter,
-                # relevance_filter,
-                # seo_filter
-            ]
-        ),
-    )
-
-    extraction_strategy = LLMExtractionStrategy(
-        instruction="Extraire 'tarif' le prix du transport, 'abonnement' la durée d'abonnement et 'conditions' les conditions d'éligibilité",
-        llm_config=LLMConfig(
-            provider="anthropic/claude-3-5-sonnet-20240620",
-            api_token=os.getenv("ANTHROPIC_API_KEY"),
-        ),
-        force_json_response=True,
-        # schema=Tarif.schema(),
-    )
-
-    run_config = CrawlerRunConfig(
-        # Content filtering
-        word_count_threshold=10,
-        exclude_external_links=True,
-        excluded_tags=["form", "header", "footer", "nav", "aside", "trafic"],
-        # Content processing
-        remove_overlay_elements=True,  # Remove popups/modals
-        process_iframes=True,  # Process iframe content
-        # Scraping strategy for deep crawling
-        deep_crawl_strategy=scraping_strategy,
-        # Extraction strategy for content extraction
-        # extraction_strategy=extraction_strategy,
-    )
-
-    async with AsyncWebCrawler(config=browser_config) as crawler:
-        result = await crawler.arun(url=url, config=run_config)
-        return result
+    st.session_state.is_crawling = not st.session_state.is_crawling
+    return st.session_state.is_crawling
 
 
-st.title("Extraction multipages")
-
-aoms_urls_data = load_urls_data_from_db()
-
-# Barre de recherche
-search_term = st.text_input(
-    "🔍 Rechercher une AOM",
-    placeholder="Exemple : Brest Métropole",
+# retrieve urls from db
+urls_data = load_urls_data_from_db()
+DATA = urls_data[["n_siren_aom", "nom_aom", "site_web_principal"]].to_dict(
+    orient="records"
 )
+st.write(DATA)
+# init crawler
+if "crawler_manager" not in st.session_state:
 
-# Filtrer les données
-filtered_df = filter_dataframe(aoms_urls_data, search_term)
+    def reset_crawler_callback():
+        st.session_state.crawler_manager = None
 
-# Afficher le nombre de résultats
-nb_results = len(filtered_df)
-first = f"{nb_results} résultat{'s' if nb_results > 1 else ''}"
-second = f"trouvé{'s' if nb_results > 1 else ''}"
+    st.session_state.crawler_manager = CrawlerManager(
+        on_crawler_reset=reset_crawler_callback
+    )
+    st.session_state.loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(st.session_state.loop)
 
-st.write(f"📊{first} {second}")
+# Ajout des tags de mots-clés
+default_keywords = [
+    "boutique",
+    "tarif",
+    "abonnement",
+    "ticket",
+    "pass",
+    "carte",
+    "titre",
+    "solidaire",
+    "tarif solidaire",
+]
+if "available_keywords" not in st.session_state:
+    st.session_state.available_keywords = default_keywords.copy()
+if "selected_keywords" not in st.session_state:
+    st.session_state.selected_keywords = default_keywords.copy()
 
-
-# Afficher le tableau filtré
-
-st.dataframe(
-    filtered_df,
-    column_config={
-        "n_siren_aom": "SIREN AOM",
-        "nom_aom": "Nom de l'AOM",
-        "site_web_principal": "URL tarification",
-        "nom_commercial": "Nom commercial",
-        "exploitant": "Exploitant",
-        "type_de_contrat": "Type de contrat",
-        "population_aom": "Population de l'AOM",
-        "nombre_membre_aom": "Nombre de membres de l'AOM",
-        "surface_km_2": "Surface de l'AOM",
-        "type_d_usagers_faibles_revenus": "Type d'usagers faibles revenus",
-        "type_d_usagers_recherche_d_emplois": "Type d'usagers recherche d'emplois",
-    },
-    hide_index=True,
-    use_container_width=True,
+# Ajout d'un champ pour les mots-clés personnalisés
+new_keyword = st.text_input(
+    label="Ajouter un nouveau mot-clé :",
+    placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
+    help="Le nouveau mot-clé sera ajouté à la liste des mots-clés disponibles",
 )
-
-# Sélection d'une AOM via une liste déroulante
-st.subheader("Sélectionner une url pour l'extraction")
-url_options = filtered_df["site_web_principal"].tolist()
-selected_url = st.selectbox("Choisir une url", url_options)
-
-
-# Récupérer les informations de l'AOM sélectionnée
-if selected_url:
-    selected_url = filtered_df[
-        filtered_df["site_web_principal"] == selected_url
-    ].iloc[0]
-    url = selected_url["site_web_principal"]
-    if not url.startswith(("http://", "https://")):
-        st.error("L'URL doit commencer par http:// ou https://")
-        st.stop()
-    keywords_input = st.text_input(
-        "Mots-clés (séparés par des virgules)",
-        placeholder="Exemple : tarif, ticket, abonnement",
-        help="Entrez les mots-clés qui vous intéressent pour filtrer les résultats",
-    )
-    scrape_button = st.button(
-        "🔍 Extraire les informations de tarification", use_container_width=True
-    )
-
-
-if scrape_button:
-    if not keywords_input.strip():
-        st.warning("Veuillez entrer au moins un mot-clé")
-        st.stop()
-
-    # Convertir la chaîne de mots-clés en liste
-    keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
-
-    with st.spinner(
-        "Extraction en cours... " "Cela peut prendre quelques instants."
+if new_keyword:
+    if (
+        new_keyword not in st.session_state.available_keywords
+        and new_keyword not in st.session_state.selected_keywords
     ):
-        try:
-            loop = asyncio.get_event_loop()
-            results = loop.run_until_complete(scraper_multipage(url, keywords))
+        st.session_state.available_keywords.append(new_keyword)
+        st.session_state.selected_keywords.append(new_keyword)
+        st.rerun()
 
-            # Créer un onglet par page
-            tabs = st.tabs([f"Page {i+1}" for i in range(len(results))])
+# Utilisation de multiselect pour les mots-clés
+st.session_state.selected_keywords = st.multiselect(
+    label="🏷️ Mots-clés pour la recherche :",
+    options=st.session_state.available_keywords,
+    default=st.session_state.selected_keywords,
+    placeholder="Choisissez un ou plusieurs mots-clés",
+    help="Sélectionnez les mots-clés qui seront utilisés pour "
+    "la recherche dans les urls des pages web",
+)
 
-            for i, page in enumerate(results):
-                with tabs[i]:
-                    # with st.expander("Contenu structuré de la page", expanded=True):
-                    #     st.markdown(f"{page.url}")
-                    #     structured_content = json.loads(page.extracted_content)
-                    #     st.json(structured_content)
+stop_button = st.button(
+    "🛑 Arrêter l'extraction",
+    help="Cliquez pour arrêter l'extraction en cours",
+    disabled=not st.session_state.get("is_crawling", False),
+    on_click=toggle_crawling,
+)
 
-                    # 1. Expander pour le contenu Markdown
-                    with st.expander("Contenu de la page", expanded=True):
-                        st.markdown(f"{page.url}")
-                        st.markdown(page.markdown)
+start_button = st.button(
+    "🕷️ Lancer l'extraction",
+    help="Cliquez pour lancer l'extraction des données sur les sites web",
+    disabled=st.session_state.get("is_crawling", False),
+    on_click=toggle_crawling,
+)
 
-                    # 2. Expander pour les liens
-                    with st.expander("Liens trouvés"):
-                        if page.links and "internal" in page.links:
-                            st.markdown("##### Liens internes")
-                            internal_links = page.links["internal"]
-                            for link in internal_links:
-                                if link["text"]:
-                                    st.markdown(
-                                        f"- [{link['text']}]({link['href']})"
-                                    )
-
-                        if page.links and "external" in page.links:
-                            st.markdown("##### Liens externes")
-                            external_links = page.links["external"]
-                            for link in external_links:
-                                text = (
-                                    link["text"]
-                                    or link["title"]
-                                    or link["href"]
-                                )
-                                st.markdown(f"- [{text}]({link['href']})")
-
-                    # 3. Expander pour les PDFs
-                    with st.expander("Fichiers PDF"):
-                        if page.media and "images" in page.media:
-                            pdf_files = [
-                                img
-                                for img in page.media["images"]
-                                if img.get("format") == "pdf"
-                            ]
-                            if pdf_files:
-                                for pdf in pdf_files:
-                                    st.markdown(
-                                        f"- [{pdf['desc'] or pdf['src']}]({pdf['src']})"
-                                    )
-                            else:
-                                st.info("Aucun fichier PDF trouvé")
-                        else:
-                            st.info("Aucun fichier PDF trouvé")
-
-                    # 4. Expander pour les images
-                    with st.expander("Images"):
-                        if page.media and "images" in page.media:
-                            images = [
-                                img
-                                for img in page.media["images"]
-                                if img.get("format") != "pdf"
-                            ]
-                            unique_images = {}
-                            for img in images:
-                                group_id = img["group_id"]
-                                if group_id not in unique_images or (
-                                    img["width"]
-                                    and unique_images[group_id]["width"]
-                                    and img["width"]
-                                    > unique_images[group_id]["width"]
-                                ):
-                                    unique_images[group_id] = img
-
-                            if unique_images:
-                                for img in unique_images.values():
-                                    with st.container():
-                                        st.image(
-                                            img["src"],
-                                            caption=img["desc"] or img["alt"],
-                                        )
-                            else:
-                                st.info("Aucune image trouvée")
-                        else:
-                            st.info("Aucune image trouvée")
-        except Exception as e:
-            st.error(f"❌ Une erreur s'est produite : {str(e)}")
+if start_button:
+    with st.spinner("Extraction en cours..."):
+        for data in DATA[:10]:
+            url = data["site_web_principal"]
+            n_siren_aom = data["n_siren_aom"]
+            nom_aom = data["nom_aom"]
+            with st.expander(f"N° SIREN AOM : {n_siren_aom}, {nom_aom}"):
+                try:
+                    loop = st.session_state.loop
+                    asyncio.set_event_loop(loop)
+                    pages = loop.run_until_complete(
+                        st.session_state.crawler_manager.fetch_content(
+                            url,
+                            st.session_state.selected_keywords,
+                        )
+                    )
+                    st.write(f"Nombre de pages : {len(pages)}")
+                except Exception as e:
+                    st.error(f"⚠️ Une erreur est survenue : {str(e)}")
