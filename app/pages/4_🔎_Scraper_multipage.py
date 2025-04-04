@@ -1,28 +1,18 @@
 import asyncio
-import json
-import os
 
-import nest_asyncio
 import streamlit as st
-
-# flake8: noqa: E402
-asyncio.set_event_loop(asyncio.new_event_loop())
-nest_asyncio.apply()
-
 from crawl4ai import AsyncWebCrawler
-from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig, LLMConfig
+from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
 from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
-from crawl4ai.deep_crawling.filters import (
-    ContentRelevanceFilter,
-    FilterChain,
-    SEOFilter,
-    URLPatternFilter,
-)
+from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
-from crawl4ai.extraction_strategy import LLMExtractionStrategy
-from pydantic import BaseModel, Field
+
+# from pydantic import BaseModel, Field
 from utils.dataframe_utils import filter_dataframe
 from utils.db_utils import load_urls_data_from_db
+
+# from crawl4ai.extraction_strategy import LLMExtractionStrategy
+
 
 # class Tarif(BaseModel):
 #     tarif: str = Field(description="Le tarif")
@@ -47,10 +37,10 @@ async def scraper_multipage(url, keywords):
             "*titre*",
         ]
     )
-    relevance_filter = ContentRelevanceFilter(
-        query=" ".join(keywords), threshold=0.5
-    )
-    seo_filter = SEOFilter(threshold=0.5, keywords=keywords)
+    # relevance_filter = ContentRelevanceFilter(
+    #     query=" ".join(keywords), threshold=0.5
+    # )
+    # seo_filter = SEOFilter(threshold=0.5, keywords=keywords)
 
     scorer = KeywordRelevanceScorer(keywords=keywords, weight=1)
 
@@ -68,15 +58,17 @@ async def scraper_multipage(url, keywords):
         ),
     )
 
-    extraction_strategy = LLMExtractionStrategy(
-        instruction="Extraire 'tarif' le prix du transport, 'abonnement' la durée d'abonnement et 'conditions' les conditions d'éligibilité",
-        llm_config=LLMConfig(
-            provider="anthropic/claude-3-5-sonnet-20240620",
-            api_token=os.getenv("ANTHROPIC_API_KEY"),
-        ),
-        force_json_response=True,
-        # schema=Tarif.schema(),
-    )
+    # extraction_strategy = LLMExtractionStrategy(
+    #     instruction="Extraire 'tarif' le prix du transport,
+    #     'abonnement' la durée d'abonnement et
+    #     'conditions' les conditions d'éligibilité",
+    #     llm_config=LLMConfig(
+    #         provider="anthropic/claude-3-5-sonnet-20240620",
+    #         api_token=os.getenv("ANTHROPIC_API_KEY"),
+    #     ),
+    #     force_json_response=True,
+    #     # schema=Tarif.schema(),
+    # )
 
     run_config = CrawlerRunConfig(
         # Content filtering
@@ -133,7 +125,7 @@ st.dataframe(
         "nombre_membre_aom": "Nombre de membres de l'AOM",
         "surface_km_2": "Surface de l'AOM",
         "type_d_usagers_faibles_revenus": "Type d'usagers faibles revenus",
-        "type_d_usagers_recherche_d_emplois": "Type d'usagers recherche d'emplois",
+        "type_d_usagers_recherche_d_emplois": "Usagers recherche d'emplois",
     },
     hide_index=True,
     use_container_width=True,
@@ -157,7 +149,7 @@ if selected_url:
     keywords_input = st.text_input(
         "Mots-clés (séparés par des virgules)",
         placeholder="Exemple : tarif, ticket, abonnement",
-        help="Entrez les mots-clés qui vous intéressent pour filtrer les résultats",
+        help="Entrez les mots-clés qui vous intéressent",
     )
     scrape_button = st.button(
         "🔍 Extraire les informations de tarification", use_container_width=True
@@ -176,25 +168,19 @@ if scrape_button:
         "Extraction en cours... " "Cela peut prendre quelques instants."
     ):
         try:
-            loop = asyncio.get_event_loop()
-            results = loop.run_until_complete(scraper_multipage(url, keywords))
+            results = asyncio.run(scraper_multipage(url, keywords))
 
             # Créer un onglet par page
             tabs = st.tabs([f"Page {i+1}" for i in range(len(results))])
 
             for i, page in enumerate(results):
                 with tabs[i]:
-                    # with st.expander("Contenu structuré de la page", expanded=True):
-                    #     st.markdown(f"{page.url}")
-                    #     structured_content = json.loads(page.extracted_content)
-                    #     st.json(structured_content)
-
-                    # 1. Expander pour le contenu Markdown
+                    # 1. Expander for the markdown content
                     with st.expander("Contenu de la page", expanded=True):
                         st.markdown(f"{page.url}")
                         st.markdown(page.markdown)
 
-                    # 2. Expander pour les liens
+                    # 2. Expander for the links
                     with st.expander("Liens trouvés"):
                         if page.links and "internal" in page.links:
                             st.markdown("##### Liens internes")
@@ -216,7 +202,7 @@ if scrape_button:
                                 )
                                 st.markdown(f"- [{text}]({link['href']})")
 
-                    # 3. Expander pour les PDFs
+                    # 3. Expander for the PDFs
                     with st.expander("Fichiers PDF"):
                         if page.media and "images" in page.media:
                             pdf_files = [
@@ -226,15 +212,13 @@ if scrape_button:
                             ]
                             if pdf_files:
                                 for pdf in pdf_files:
-                                    st.markdown(
-                                        f"- [{pdf['desc'] or pdf['src']}]({pdf['src']})"
-                                    )
+                                    print("todo")
                             else:
                                 st.info("Aucun fichier PDF trouvé")
                         else:
                             st.info("Aucun fichier PDF trouvé")
 
-                    # 4. Expander pour les images
+                    # 4. Expander for the images
                     with st.expander("Images"):
                         if page.media and "images" in page.media:
                             images = [
