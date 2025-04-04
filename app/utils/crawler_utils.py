@@ -22,19 +22,9 @@ class CrawlerManager:
         return self.crawler
 
     async def fetch_content(self, url: str, keywords: List[str]):
-        url_filter = URLPatternFilter(
-            patterns=[
-                "*boutique*",
-                "*tarif*",
-                "*abonnement*",
-                "*ticket*",
-                "*pass*",
-                "*carte*",
-                "*titre*",
-            ]
-        )
+        url_filter = URLPatternFilter(patterns=[f"*{k}*" for k in keywords])
 
-        scorer = KeywordRelevanceScorer(keywords=keywords, weight=1)
+        scorer = KeywordRelevanceScorer(keywords=keywords, weight=0.7)
 
         scraping_strategy = BestFirstCrawlingStrategy(
             max_depth=2,

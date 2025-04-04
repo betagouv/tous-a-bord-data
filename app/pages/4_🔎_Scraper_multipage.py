@@ -26,6 +26,47 @@ if "crawler_manager" not in st.session_state:
 
 st.title("Scraper html multipage")
 
+# Ajout des tags de mots-clés
+default_keywords = [
+    "boutique",
+    "tarif",
+    "abonnement",
+    "ticket",
+    "pass",
+    "carte",
+    "titre",
+    "solidaire",
+    "tarif solidaire",
+]
+if "available_keywords" not in st.session_state:
+    st.session_state.available_keywords = default_keywords.copy()
+if "selected_keywords" not in st.session_state:
+    st.session_state.selected_keywords = default_keywords.copy()
+
+# Ajout d'un champ pour les mots-clés personnalisés
+new_keyword = st.text_input(
+    label="Ajouter un nouveau mot-clé :",
+    placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
+    help="Le nouveau mot-clé sera ajouté à la liste des mots-clés disponibles",
+)
+if new_keyword:
+    if (
+        new_keyword not in st.session_state.available_keywords
+        and new_keyword not in st.session_state.selected_keywords
+    ):
+        st.session_state.available_keywords.append(new_keyword)
+        st.session_state.selected_keywords.append(new_keyword)
+        st.rerun()
+
+# Utilisation de multiselect pour les mots-clés
+st.session_state.selected_keywords = st.multiselect(
+    label="🏷️ Mots-clés pour la recherche :",
+    options=st.session_state.available_keywords,
+    default=st.session_state.selected_keywords,
+    placeholder="Choisissez un ou plusieurs mots-clés",
+    help="Sélectionnez les mots-clés qui seront utilisés pour la recherche dans les urls despages web",
+)
+
 aoms_urls_data = load_urls_data_from_db()
 
 # Barre de recherche
@@ -81,23 +122,13 @@ if selected_url:
     if not url.startswith(("http://", "https://")):
         st.error("L'URL doit commencer par http:// ou https://")
         st.stop()
-    keywords_input = st.text_input(
-        "Mots-clés (séparés par des virgules)",
-        placeholder="Exemple : tarif, ticket, abonnement",
-        help="Entrez les mots-clés qui vous intéressent",
-    )
     scrape_button = st.button(
         "🔍 Extraire les informations de tarification", use_container_width=True
     )
 
 
 if scrape_button:
-    if not keywords_input.strip():
-        st.warning("Veuillez entrer au moins un mot-clé")
-        st.stop()
-
-    # Convertir la chaîne de mots-clés en liste
-    keywords = [k.strip() for k in keywords_input.split(",") if k.strip()]
+    keywords = st.session_state.selected_keywords
 
     with st.spinner(
         "Extraction en cours... " "Cela peut prendre quelques instants."
