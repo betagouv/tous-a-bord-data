@@ -1,30 +1,38 @@
 import asyncio
 
+import nest_asyncio
 import streamlit as st
+
+# Initialize the event loop before importing crawl4ai
+# flake8: noqa: E402
+nest_asyncio.apply()
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
 from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
 from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
-
-# from pydantic import BaseModel, Field
 from utils.dataframe_utils import filter_dataframe
 from utils.db_utils import load_urls_data_from_db
 
-# from crawl4ai.extraction_strategy import LLMExtractionStrategy
+# Init crawler
+if "crawler" not in st.session_state:
+    st.session_state.crawler = None
+    st.session_state.loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(st.session_state.loop)
 
 
-# class Tarif(BaseModel):
-#     tarif: str = Field(description="Le tarif")
-#     abonnement: str = Field(description="La durée d'abonnement")
-#     conditions: str = Field(description="Les conditions du tarif")
+async def init_crawler():
+    if st.session_state.crawler is None:
+        browser_config = BrowserConfig(
+            browser_type="chromium", headless=True, verbose=True
+        )
+        crawler = AsyncWebCrawler(config=browser_config)
+        await crawler.start()
+        st.session_state.crawler = crawler
+    return st.session_state.crawler
 
 
-async def scraper_multipage(url, keywords):
-
-    browser_config = BrowserConfig(
-        verbose=True,
-    )
+async def fetch_content(url, keywords):
 
     url_filter = URLPatternFilter(
         patterns=[
@@ -84,9 +92,16 @@ async def scraper_multipage(url, keywords):
         # extraction_strategy=extraction_strategy,
     )
 
-    async with AsyncWebCrawler(config=browser_config) as crawler:
+    try:
+        crawler = await init_crawler()
         result = await crawler.arun(url=url, config=run_config)
         return result
+    except Exception as e:
+        # If error, reset the crawler
+        if st.session_state.crawler:
+            await st.session_state.crawler.stop()
+            st.session_state.crawler = None
+        raise e
 
 
 st.title("Scraper html multipage")
@@ -168,8 +183,9 @@ if scrape_button:
         "Extraction en cours... " "Cela peut prendre quelques instants."
     ):
         try:
-            results = asyncio.run(scraper_multipage(url, keywords))
-
+            loop = st.session_state.loop
+            asyncio.set_event_loop(loop)
+            results = loop.run_until_complete(fetch_content(url, keywords))
             # Créer un onglet par page
             tabs = st.tabs([f"Page {i+1}" for i in range(len(results))])
 
