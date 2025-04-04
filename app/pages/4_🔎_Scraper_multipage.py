@@ -6,102 +6,22 @@ import streamlit as st
 # Initialize the event loop before importing crawl4ai
 # flake8: noqa: E402
 nest_asyncio.apply()
-from crawl4ai import AsyncWebCrawler
-from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
-from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
-from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter
-from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
+
+from utils.crawler_utils import CrawlerManager
 from utils.dataframe_utils import filter_dataframe
 from utils.db_utils import load_urls_data_from_db
 
 # Init crawler
-if "crawler" not in st.session_state:
-    st.session_state.crawler = None
+if "crawler_manager" not in st.session_state:
+
+    def reset_crawler_callback():
+        st.session_state.crawler_manager = None
+
+    st.session_state.crawler_manager = CrawlerManager(
+        on_crawler_reset=reset_crawler_callback
+    )
     st.session_state.loop = asyncio.new_event_loop()
     asyncio.set_event_loop(st.session_state.loop)
-
-
-async def init_crawler():
-    if st.session_state.crawler is None:
-        browser_config = BrowserConfig(
-            browser_type="chromium", headless=True, verbose=True
-        )
-        crawler = AsyncWebCrawler(config=browser_config)
-        await crawler.start()
-        st.session_state.crawler = crawler
-    return st.session_state.crawler
-
-
-async def fetch_content(url, keywords):
-
-    url_filter = URLPatternFilter(
-        patterns=[
-            "*boutique*",
-            "*tarif*",
-            "*abonnement*",
-            "*ticket*",
-            "*pass*",
-            "*carte*",
-            "*titre*",
-        ]
-    )
-    # relevance_filter = ContentRelevanceFilter(
-    #     query=" ".join(keywords), threshold=0.5
-    # )
-    # seo_filter = SEOFilter(threshold=0.5, keywords=keywords)
-
-    scorer = KeywordRelevanceScorer(keywords=keywords, weight=1)
-
-    scraping_strategy = BestFirstCrawlingStrategy(
-        max_depth=2,
-        max_pages=10,
-        include_external=False,
-        url_scorer=scorer,
-        filter_chain=FilterChain(
-            [
-                url_filter,
-                # relevance_filter,
-                # seo_filter
-            ]
-        ),
-    )
-
-    # extraction_strategy = LLMExtractionStrategy(
-    #     instruction="Extraire 'tarif' le prix du transport,
-    #     'abonnement' la durée d'abonnement et
-    #     'conditions' les conditions d'éligibilité",
-    #     llm_config=LLMConfig(
-    #         provider="anthropic/claude-3-5-sonnet-20240620",
-    #         api_token=os.getenv("ANTHROPIC_API_KEY"),
-    #     ),
-    #     force_json_response=True,
-    #     # schema=Tarif.schema(),
-    # )
-
-    run_config = CrawlerRunConfig(
-        # Content filtering
-        word_count_threshold=10,
-        exclude_external_links=True,
-        excluded_tags=["form", "header", "footer", "nav", "aside", "trafic"],
-        # Content processing
-        remove_overlay_elements=True,  # Remove popups/modals
-        process_iframes=True,  # Process iframe content
-        # Scraping strategy for deep crawling
-        deep_crawl_strategy=scraping_strategy,
-        # Extraction strategy for content extraction
-        # extraction_strategy=extraction_strategy,
-    )
-
-    try:
-        crawler = await init_crawler()
-        result = await crawler.arun(url=url, config=run_config)
-        return result
-    except Exception as e:
-        # If error, reset the crawler
-        if st.session_state.crawler:
-            await st.session_state.crawler.stop()
-            st.session_state.crawler = None
-        raise e
 
 
 st.title("Scraper html multipage")
@@ -185,7 +105,9 @@ if scrape_button:
         try:
             loop = st.session_state.loop
             asyncio.set_event_loop(loop)
-            results = loop.run_until_complete(fetch_content(url, keywords))
+            results = loop.run_until_complete(
+                st.session_state.crawler_manager.fetch_content(url, keywords)
+            )
             # Créer un onglet par page
             tabs = st.tabs([f"Page {i+1}" for i in range(len(results))])
 
