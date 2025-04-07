@@ -25,7 +25,6 @@ urls_data = load_urls_data_from_db()
 DATA = urls_data[["n_siren_aom", "nom_aom", "site_web_principal"]].to_dict(
     orient="records"
 )
-st.write(DATA)
 # init crawler
 if "crawler_manager" not in st.session_state:
 
@@ -110,6 +109,11 @@ if start_button:
                             st.session_state.selected_keywords,
                         )
                     )
-                    st.write(f"Nombre de pages : {len(pages)}")
+                    # Créer un onglet par page
+                    tabs = st.tabs([f"Page {i+1}" for i in range(len(pages))])
+                    for i, page in enumerate(pages):
+                        with tabs[i]:
+                            st.markdown(f"{page.url}")
+                            st.markdown(page.markdown)
                 except Exception as e:
                     st.error(f"⚠️ Une erreur est survenue : {str(e)}")
