@@ -24,43 +24,70 @@ class CrawlerManager:
         return self.crawler
 
     async def fetch_content(self, url: str, keywords: List[str]):
-        # Filtre pour les URLs à inclure - ajout de patterns plus spécifiques
-        include_filter = URLPatternFilter(
-            patterns=[f"*{k}*" for k in keywords]
-        )
 
-        # Filtre pour les URLs à exclure
+        # blacklist of url patterns
         exclude_filter = URLPatternFilter(
             patterns=[
+                "*actualites*",
                 "*cookie*",
                 "*mentions-legales*",
                 "*confidentialite*",
                 "*donnees-personnelles*",
+                "*contact*",
+                "*faq*",
+                "*a-propos*",
+                "*me-deplacer*",
+                "*se-deplacer*",
+                "*reseau*",
+                "*plan-du-site*",
+                "*jegeremacartenavigo*",
+                "*actu*",
             ],
             reverse=True,
         )
 
-        scorer = KeywordRelevanceScorer(keywords=keywords, weight=0.5)
+        scorer = KeywordRelevanceScorer(keywords=keywords, weight=2)
 
         scraping_strategy = BestFirstCrawlingStrategy(
-            max_depth=3,
-            max_pages=20,
+            max_depth=6,
+            max_pages=10,
             include_external=False,
             url_scorer=scorer,
-            filter_chain=FilterChain([include_filter, exclude_filter]),
+            filter_chain=FilterChain([exclude_filter]),
         )
-
+        js_code = """
+        function clickElements() {
+            var elements = document."""
+        js_code += """
+            querySelectorAll('.accordion, button, [aria-expanded="false"]');
+            for (var i = 0; i < elements.length; i++) {
+                try { elements[i].click(); } catch(e) {}
+            }
+            return elements.length;
+            }
+            clickElements();
+        """
         run_config = CrawlerRunConfig(
-            word_count_threshold=0,
-            wait_until="networkidle",
-            page_timeout=60000,
-            scan_full_page=True,
-            process_iframes=True,
-            remove_overlay_elements=True,
-            simulate_user=True,
-            magic=True,
             deep_crawl_strategy=scraping_strategy,
-            semaphore_count=5,
+            # Key parameters for the JavaScript
+            # Wait until all network calls are finished
+            wait_until="networkidle",
+            # 90 seconds timeout
+            page_timeout=5000,
+            # Wait 2s before returning the HTML
+            delay_before_return_html=2.0,
+            # Scan the full page
+            scan_full_page=True,
+            # Simulate a user
+            simulate_user=True,
+            # Remove overlays
+            remove_overlay_elements=True,
+            # Scroll delay
+            scroll_delay=1.0,
+            # Process iframes
+            process_iframes=True,
+            js_code=js_code,
+            verbose=True,
         )
 
         try:
