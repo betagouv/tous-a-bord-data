@@ -146,7 +146,6 @@ if scrape_button:
             for i, page in enumerate(result):
                 with tabs[i]:
                     st.write(f"URL: {page.url}")
-                    st.write(f"{page.links}")
                     st.markdown(page.markdown)
         except Exception as e:
             st.error(f"❌ Une erreur s'est produite : {str(e)}")
