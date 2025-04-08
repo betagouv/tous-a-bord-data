@@ -28,45 +28,14 @@ st.title("Scraper html multipage")
 
 # Ajout des tags de mots-clés
 default_keywords = [
-    "toutes nos offres",
+    "offres",
     "boutique",
     "tarif",
-    "tarifs",
     "abonnement",
     "solidaire",
-    "titre",
-    "titre et tarif",
-    "tarif et titre",
-    "titres et tarifs",
-    "tarifs et titres",
-    "tarif solidaire",
-    "tarifs solidaires",
-    "tarifs réduits",
-    "tarifs étudiants",
-    "tarifs seniors",
-    "tarifs enfants",
-    "tarification étudiant",
-    "tarifs familles nombreuses",
-    "tarifs personnes à mobilité réduite",
-    "tarifs PMR",
-    "QF",
-    "quotient familial",
-    "étudiant",
-    "étudiant boursiers",
-    "étudiants",
-    "étudiants boursiers",
-    "jeunes de moins de 26 ans",
-    "jeunes de moins de 25 ans",
-    "jeunes actifs",
-    "tarification sociale",
-    "tarification solidaire",
-    "tarification réduite",
-    "éligible",
-    "éligibilité",
-    "critères d'éligibilité",
-    "jeunesse",
-    "pass jeune",
     "acheter",
+    "pass",
+    "titre",
 ]
 
 if "available_keywords" not in st.session_state:
@@ -167,15 +136,17 @@ if scrape_button:
         try:
             loop = st.session_state.loop
             asyncio.set_event_loop(loop)
-            results = loop.run_until_complete(
+            result = loop.run_until_complete(
                 st.session_state.crawler_manager.fetch_content(url, keywords)
             )
-            # Créer un onglet par page
-            tabs = st.tabs([f"Page {i+1}" for i in range(len(results))])
 
-            for i, page in enumerate(results):
+            # Créer un onglet par page
+            tabs = st.tabs([f"Page {i+1}" for i in range(len(result))])
+
+            for i, page in enumerate(result):
                 with tabs[i]:
-                    st.markdown(f"{page.url}")
+                    st.write(f"URL: {page.url}")
+                    st.write(f"{page.links}")
                     st.markdown(page.markdown)
         except Exception as e:
             st.error(f"❌ Une erreur s'est produite : {str(e)}")
