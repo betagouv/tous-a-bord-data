@@ -61,6 +61,12 @@ default_keywords = [
     "tarification sociale",
     "tarification solidaire",
     "tarification réduite",
+    "éligible",
+    "éligibilité",
+    "critères d'éligibilité",
+    "jeunesse",
+    "pass jeune",
+    "acheter",
 ]
 
 if "available_keywords" not in st.session_state:
