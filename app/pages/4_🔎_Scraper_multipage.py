@@ -28,6 +28,7 @@ st.title("Scraper html multipage")
 
 # Ajout des tags de mots-clés
 default_keywords = [
+    "toutes nos offres",
     "boutique",
     "tarif",
     "tarifs",
@@ -168,78 +169,7 @@ if scrape_button:
 
             for i, page in enumerate(results):
                 with tabs[i]:
-                    # 1. Expander for the markdown content
-                    with st.expander("Contenu de la page", expanded=True):
-                        st.markdown(f"{page.url}")
-                        st.markdown(page.markdown)
-
-                    # 2. Expander for the links
-                    with st.expander("Liens trouvés"):
-                        if page.links and "internal" in page.links:
-                            st.markdown("##### Liens internes")
-                            internal_links = page.links["internal"]
-                            for link in internal_links:
-                                if link["text"]:
-                                    st.markdown(
-                                        f"- [{link['text']}]({link['href']})"
-                                    )
-
-                        if page.links and "external" in page.links:
-                            st.markdown("##### Liens externes")
-                            external_links = page.links["external"]
-                            for link in external_links:
-                                text = (
-                                    link["text"]
-                                    or link["title"]
-                                    or link["href"]
-                                )
-                                st.markdown(f"- [{text}]({link['href']})")
-
-                    # 3. Expander for the PDFs
-                    with st.expander("Fichiers PDF"):
-                        if page.media and "images" in page.media:
-                            pdf_files = [
-                                img
-                                for img in page.media["images"]
-                                if img.get("format") == "pdf"
-                            ]
-                            if pdf_files:
-                                for pdf in pdf_files:
-                                    print("todo")
-                            else:
-                                st.info("Aucun fichier PDF trouvé")
-                        else:
-                            st.info("Aucun fichier PDF trouvé")
-
-                    # 4. Expander for the images
-                    with st.expander("Images"):
-                        if page.media and "images" in page.media:
-                            images = [
-                                img
-                                for img in page.media["images"]
-                                if img.get("format") != "pdf"
-                            ]
-                            unique_images = {}
-                            for img in images:
-                                group_id = img["group_id"]
-                                if group_id not in unique_images or (
-                                    img["width"]
-                                    and unique_images[group_id]["width"]
-                                    and img["width"]
-                                    > unique_images[group_id]["width"]
-                                ):
-                                    unique_images[group_id] = img
-
-                            if unique_images:
-                                for img in unique_images.values():
-                                    with st.container():
-                                        st.image(
-                                            img["src"],
-                                            caption=img["desc"] or img["alt"],
-                                        )
-                            else:
-                                st.info("Aucune image trouvée")
-                        else:
-                            st.info("Aucune image trouvée")
+                    st.markdown(f"{page.url}")
+                    st.markdown(page.markdown)
         except Exception as e:
             st.error(f"❌ Une erreur s'est produite : {str(e)}")
