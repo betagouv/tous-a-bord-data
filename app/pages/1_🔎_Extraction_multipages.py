@@ -117,7 +117,7 @@ if start_button:
         # Connexion à la base de données
         engine = create_engine(get_postgres_cs())
 
-        for data in DATA[:10]:
+        for data in DATA:
             url = data["site_web_principal"]
             n_siren_aom = data["n_siren_aom"]
             nom_aom = data["nom_aom"]
@@ -140,7 +140,7 @@ if start_button:
                             {
                                 "domain_pattern": f"%{domain}%",
                                 "cutoff_time": datetime.now()
-                                - timedelta(hours=1),
+                                - timedelta(hours=48),
                             },
                         ).fetchone()
 
