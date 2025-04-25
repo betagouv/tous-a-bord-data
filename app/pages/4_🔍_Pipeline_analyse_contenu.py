@@ -32,7 +32,6 @@ default_keywords = [
     "jeune",
     "senior",
     "étudiant",
-    "navigo",
 ]
 
 # Constantes pour les modèles LLM disponibles
@@ -91,15 +90,6 @@ def get_aom_content(siren):
     return "\n\n".join(full_content)
 
 
-def truncate_content(content, max_chars=100000):
-    """Tronque le contenu en gardant le début et la fin"""
-    if len(content) <= max_chars:
-        return content
-
-    half = max_chars // 2
-    return content[:half] + "\n\n[...CONTENU TRONQUÉ...]\n\n" + content[-half:]
-
-
 def extract_json_from_response(text):
     """Extrait le JSON de la réponse de Claude"""
     try:
@@ -116,7 +106,6 @@ def extract_json_from_response(text):
 
 def analyze_content_with_claude(content):
     try:
-        truncated_content = truncate_content(content)
         prompt = (
             "Analyser le contenu suivant en vous concentrant sur"
             "la tarification des transports en commun réguliers"
@@ -136,7 +125,7 @@ def analyze_content_with_claude(content):
             messages=[
                 {
                     "role": "user",
-                    "content": f"{prompt}\n{truncated_content}",
+                    "content": f"{prompt}\n{content}",
                 }
             ],
         )
@@ -155,93 +144,6 @@ def analyze_content_with_claude(content):
     except Exception as e:
         st.error(f"Erreur lors de l'appel à Claude : {str(e)}")
         return None
-
-
-def analyze_content_relevance(content, keywords):
-    """
-    Utiliser un LLM pour analyser la pertinence du contenu en fonction de:
-    1. Présence de mots-clés importants
-    2. Présence d'informations tarifaires (montants en euros)
-    3. Identification des conditions d'éligibilité
-    """
-    f"""
-    Analyser le contenu suivant et évaluer sa pertinence pour
-    la tarification des transports.
-    Critères à évaluer:
-    1. Présence des mots-clés suivants: {', '.join(keywords)}
-    2. Présence de montants en euros
-    3. Présence de conditions d'éligibilité
-    4. Présence d'informations sur la tarification solidaire
-    Contenu à analyser:
-    {content}
-    Format de réponse attendu (JSON):
-    {{
-        "score": float, # entre 0 et 1
-        "keywords_found": [str],
-        "tarifs_identifies": [
-            {{
-                "montant": float,
-                "unite": str,
-                "description": str
-            }}
-        ],
-        "conditions_eligibilite": [str],
-        "has_tarification_solidaire": bool,
-        "raisons": str
-    }}
-    """
-    # Appel au LLM avec le prompt
-    # response = llm.analyze(prompt)
-    # return json.loads(response)
-
-
-def extract_relevant_passages(
-    content: str, keywords: List[str], context_chars: int = 200
-) -> Dict[str, List[str]]:
-    """Extrait les passages pertinents du contenu en fonction des mots-clés"""
-    passages = {}
-
-    # Découper le contenu en sections par URL
-    sections = content.split("=== Source:")
-
-    for section in sections:
-        if not section.strip():
-            continue
-
-        # Extraire l'URL de la section
-        url_line = section.split("\n")[0].strip()
-        current_url = url_line.replace("===", "").strip()
-        passages[current_url] = []
-
-        # Pour chaque mot-clé, chercher les occurrences et leur contexte
-        for keyword in keywords:
-            start = 0
-            while True:
-                pos = section.lower().find(keyword.lower(), start)
-                if pos == -1:
-                    break
-
-                # Extraire le contexte autour du mot-clé
-                context_start = max(0, pos - context_chars)
-                context_end = min(
-                    len(section), pos + len(keyword) + context_chars
-                )
-                context = section[context_start:context_end]
-
-                # Nettoyer et formater le passage
-                context = context.replace("\n", " ").strip()
-                context = (
-                    f"...{context}..."
-                    if len(context) == (context_chars * 2 + len(keyword))
-                    else context
-                )
-
-                if context not in passages[current_url]:
-                    passages[current_url].append(context)
-
-                start = pos + len(keyword)
-
-    return passages
 
 
 def extract_tarif_info(content: str) -> List[Dict]:
@@ -344,72 +246,101 @@ def filter_content_by_relevance(
 ) -> Dict[str, str]:
     """Filtre le contenu pour ne garder que les parties pertinentes"""
     try:
-        # Log pour debug
-        st.write(
-            f"Début du filtrage - "
+        msg = (
+            "Début du filtrage - "
             f"Taille du contenu: {len(content)} caractères"
         )
-        # Diviser en chunks selon le modèle choisi
+        st.write(msg)
         chunks = split_content_in_chunks(content, model)
         st.write(f"Nombre de chunks: {len(chunks)}")
-        filtered_chunks = []
-        # Traiter chaque chunk
+
+        # Un seul conteneur pour tout le texte filtré
+        text_container = st.empty()
+        filtered_content = ""
+
         for i, chunk in enumerate(chunks):
             st.write(f"Traitement du chunk {i+1}/{len(chunks)}")
+
             prompt = (
-                "Filtrer le contenu suivant pour ne garder que les "
-                "informations pertinentes.\n"
-                "Ne conserver que:\n"
-                "1. Les informations tarifaires (prix, montants en €)\n"
-                "2. Les conditions d'éligibilité\n"
-                "3. Les réductions et tarifs sociaux\n"
+                "Extrais toutes les informations tarifaires des transports en "
+                "commun à partir du texte suivant. Garde exactement :\n"
+                "1. Les tarifs standards (billets, carnets, abonnements)\n"
+                "2. Les tarifs réduits et leurs conditions\n"
+                "3. Les tarifs solidaires et leurs conditions d'éligibilité\n"
                 "4. Les zones géographiques concernées\n\n"
                 "IMPORTANT:\n"
-                "- Garder uniquement les phrases pertinentes\n"
-                "- Conserver la structure Source/Page\n"
-                "- Ignorer tout contenu non lié aux tarifs\n"
-                "- TOUJOURS retourner le contenu filtré, même minimal\n"
-                "- Si aucune information pertinente n'est trouvée,\n"
-                "  retourner 'Aucune information tarifaire trouvée'\n\n"
-                f"Mots-clés importants: {', '.join(keywords)}\n\n"
-                "Format de réponse attendu:\n"
-                "- Garder les marqueurs '--- Page:' et leur contenu\n"
-                "- Retourner le texte filtré directement"
+                "- Conserve les montants exacts et les unités (€)\n"
+                "- Garde toutes les conditions d'éligibilité\n"
+                "- Ne fais pas de résumé ou d'interprétation\n"
+                "- Retourne le texte brut avec sa structure\n"
+                "- Si tu trouves des informations tarifaires, retourne-les\n"
+                "- Ne retourne PAS de texte formaté ou de liste\n"
+                "- Conserve les marqueurs '--- Page:' si présents\n\n"
+                "- Si tu ne trouves aucune information tarifaire, réponds "
+                "uniquement 'NO_TARIF_INFO'\n\n"
+                f"Mots-clés de référence : {', '.join(keywords)}\n\n"
+                "Contenu à filtrer :\n"
+                f"{chunk}"
             )
 
-            # Utiliser le streaming avec max_tokens limité
-            with client.messages.stream(
-                model=LLM_MODELS[model]["name"],
-                max_tokens=8000,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"{prompt}\n\nContenu à filtrer:\n{chunk}",
-                    }
-                ],
-            ) as stream:
-                chunk_content = []
-                for message in stream:
-                    if message.type == "content_block":
-                        chunk_content.append(message.text)
-                filtered_text = "".join(chunk_content).strip()
-                if filtered_text:  # Check that the text is not empty
-                    filtered_chunks.append(filtered_text)
-                    st.write(
+            try:
+                stream = client.messages.create(
+                    model=LLM_MODELS[model]["name"],
+                    max_tokens=8000,
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=True,
+                )
+
+                current_chunk_text = ""
+                for event in stream:
+                    if event.type == "content_block_delta":
+                        current_chunk_text += event.delta.text
+
+                # Vérifier le contenu final du chunk
+                if "NO_TARIF_INFO" not in current_chunk_text:
+                    # Ajouter le contenu du chunk au contenu filtré total
+                    if filtered_content:
+                        filtered_content += "\n\n"
+                    filtered_content += current_chunk_text
+
+                    # Mettre à jour l'affichage
+                    if filtered_content.strip():
+                        text_container.text_area(
+                            "Contenu filtré",
+                            value=filtered_content,
+                            height=300,
+                            disabled=True,
+                        )
+
+                    msg = (
                         f"✓ Chunk {i+1} filtré - "
-                        f"Taille: {len(filtered_text)} caractères"
+                        f"Taille: {len(current_chunk_text)} caractères"
                     )
-        # Combine the results
-        combined_result = "\n\n".join(filtered_chunks)
-        st.write(
-            f"Filtrage terminé - "
-            f"Taille du résultat: {len(combined_result)} caractères"
-        )
-        if not combined_result.strip():
-            return {
-                "Contenu filtré": "Pas d'info tarifaire pertinente trouvée"
-            }
-        return {"Contenu filtré": combined_result}
+                    st.write(msg)
+                else:
+                    st.warning(
+                        f"⚠️ Chunk {i+1} : Aucune information tarifaire"
+                    )
+
+            except Exception as chunk_error:
+                msg = (
+                    f"Erreur lors du traitement du chunk {i+1}: "
+                    f"{str(chunk_error)}"
+                )
+                st.warning(msg)
+                continue
+
+        if filtered_content:
+            msg = (
+                f"Filtrage terminé - "
+                f"Taille du résultat: {len(filtered_content)} caractères"
+            )
+            st.write(msg)
+            return {"Contenu filtré": filtered_content}
+        else:
+            text_container.empty()
+            return {"Contenu filtré": ""}
+
     except Exception as e:
         st.error(f"Erreur de filtrage : {str(e)}")
         st.write("Détails de l'erreur:", e)
@@ -589,115 +520,57 @@ if selected_aom:
                 st.error("Veuillez d'abord charger le contenu dans l'étape 1")
                 st.stop()
 
-            log_container = st.empty()
+            # Créer la barre de progression globale
             progress_bar = st.progress(0)
-            tabs = st.tabs(
-                [
-                    f"Source {i+1}"
-                    for i in range(len(st.session_state.sources_content))
-                ]
-            )
-            longest_source = max(
-                st.session_state.sources_content.items(),
-                key=lambda x: len(x[1]),
-            )
-            total_chunks = len(
-                split_content_in_chunks(longest_source[1], selected_model)
-            )
+
+            # Créer les onglets
+            sources_count = len(st.session_state.sources_content)
+            tabs = st.tabs([f"Source {i+1}" for i in range(sources_count)])
+
             # Traiter chaque source
             filtered_contents = {}
-            for i, (source, content) in enumerate(
-                st.session_state.sources_content.items()
-            ):
+
+            # Itérer sur les sources
+            sources_items = st.session_state.sources_content.items()
+            for i, (source, content) in enumerate(sources_items):
                 with tabs[i]:
                     st.write(f"URL: {source}")
-                    # Afficher les informations de la source en cours
-                    log_container.info(
-                        f"Traitement de la source {i+1}: {source}"
-                    )
-                    log_container.write(
-                        f"Taille du contenu: {len(content)} caractères"
-                    )
-                    chunks = split_content_in_chunks(content, selected_model)
-                    log_container.write(
-                        f"Nombre de chunks pour cette source: {len(chunks)}"
-                    )
-                    filtered_chunks = []
-                    for j, chunk in enumerate(chunks):
-                        # Mettre à jour le log pour le chunk en cours
-                        log_container.info(
-                            f"Filtrage du chunk {j+1}/{len(chunks)}"
-                        )
-                        with st.spinner(
-                            f"Filtrage du chunk {j+1}/{len(chunks)}"
-                        ):
-                            prompt = f"""Filtrer le contenu suivant pour ne
-                            garder que:
-                            1. Les informations tarifaires
-                            (prix, montants en €)
-                            2. Les conditions d'éligibilité
-                            3. Les réductions et tarifs sociaux
-                            4. Les zones géographiques concernées
-                            IMPORTANT:
-                            - Garder uniquement les phrases pertinentes
-                            - Conserver la structure Source/Page
-                            - Ignorer tout contenu non lié aux tarifs,
-                            critères d'éligibilité, réductions, etc.
-                            Mots-clés importants:
-                            {', '.join(selected_keywords)}
-                            """
 
-                            # Call Claude with streaming
-                            with client.messages.stream(
-                                model=LLM_MODELS[selected_model]["name"],
-                                max_tokens=8000,
-                                messages=[
-                                    {
-                                        "role": "user",
-                                        "content": (
-                                            f"{prompt}\n\n"
-                                            f"Contenu:\n{chunk}"
-                                        ),
-                                    }
-                                ],
-                            ) as stream:
-                                chunk_content = []
-                                for message in stream:
-                                    if message.type == "content_block":
-                                        chunk_content.append(message.text)
-                                filtered_text = "".join(chunk_content).strip()
-                                if filtered_text:
-                                    filtered_chunks.append(filtered_text)
-                                    log_container.write(
-                                        f"✓ Chunk {j+1} filtré - "
-                                        f"Taille: {len(filtered_text)}"
-                                        "caractères"
-                                    )
-                        progress = (i * total_chunks + j + 1) / (
-                            len(st.session_state.sources_content)
-                            * total_chunks
-                        )
-                        progress_bar.progress(min(progress, 1.0))
-                    # Combine the filtered chunks for this source
-                    filtered_content = "\n\n".join(filtered_chunks)
-                    filtered_contents[source] = filtered_content
-                    # Display the filtered content in the tab
-                    if filtered_content.strip():
+                    # Appeler la fonction de filtrage
+                    filtered_result = filter_content_by_relevance(
+                        content=content,
+                        keywords=selected_keywords,
+                        model=selected_model,
+                    )
+
+                    # Mettre à jour la barre de progression
+                    progress_bar.progress((i + 1) / sources_count)
+
+                    # Afficher le contenu filtré
+                    if filtered_result["Contenu filtré"].strip():
                         st.text_area(
                             "Contenu filtré",
-                            value=filtered_content,
+                            value=filtered_result["Contenu filtré"],
                             height=300,
                             disabled=True,
                             key=f"filtered_content_{i}",
                         )
+                        filtered_contents[source] = filtered_result[
+                            "Contenu filtré"
+                        ]
                     else:
-                        st.warning(
+                        msg = (
                             "Aucun contenu pertinent trouvé dans cette source"
                         )
-            # Save the filtered results for the next steps
-            st.session_state.filtered_contents = filtered_contents
-            # Final log
-            log_container.success("Filtrage terminé pour toutes les sources")
+                        st.warning(msg)
+
+            # Sauvegarder les résultats filtrés
+            if filtered_contents:
+                st.session_state.filtered_contents = filtered_contents
+                st.success("Filtrage terminé pour toutes les sources")
+            else:
+                msg = "Aucun contenu pertinent n'a été trouvé dans les sources"
+                st.error(msg)
 
     # Step 3: Agrégation et déduplication
     st.header("🔄 Étape 3 : Agrégation et déduplication")
