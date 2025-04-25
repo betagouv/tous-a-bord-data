@@ -6,6 +6,8 @@ import pandas as pd
 import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import create_engine, text
 from utils.db_utils import get_postgres_cs, load_urls_data_from_db
 
@@ -32,6 +34,18 @@ default_keywords = [
     "étudiant",
     "navigo",
 ]
+
+# Constantes pour les modèles LLM disponibles
+LLM_MODELS = {
+    "Claude 3 Sonnet": {
+        "name": "claude-3-5-sonnet-latest",
+        "max_tokens": 200000,
+    },
+    "Claude 3 Haiku": {
+        "name": "claude-3-5-haiku-latest",
+        "max_tokens": 100000,
+    },
+}
 
 
 def format_score(score: float) -> str:
@@ -119,7 +133,6 @@ def analyze_content_with_claude(content):
 
         message = client.messages.create(
             model="claude-3-5-sonnet-latest",
-            max_tokens=4096,
             messages=[
                 {
                     "role": "user",
@@ -236,7 +249,6 @@ def extract_tarif_info(content: str) -> List[Dict]:
     try:
         message = client.messages.create(
             model="claude-3-5-sonnet-latest",
-            max_tokens=4096,
             messages=[
                 {
                     "role": "user",
@@ -274,6 +286,201 @@ def extract_tarif_info(content: str) -> List[Dict]:
     except Exception as e:
         st.error(f"Erreur d'extraction des tarifs : {str(e)}")
         return None
+
+
+def get_aom_content_by_source(siren: str, source_url: str) -> str:
+    """Récupère le contenu d'une source spécifique pour un AOM"""
+    with engine.connect() as conn:
+        pages = conn.execute(
+            text(
+                """
+                SELECT url_page, contenu_scrape
+                FROM tarification_raw
+                WHERE n_siren_aom = :siren
+                AND url_source = :url
+                ORDER BY id
+            """
+            ),
+            {"siren": siren, "url": source_url},
+        ).fetchall()
+        content_parts = []
+        for page in pages:
+            content_parts.append(
+                f"--- Page: {page.url_page} ---\n{page.contenu_scrape}"
+            )
+    return "\n\n".join(content_parts)
+
+
+def split_content_in_chunks(content: str, model: str) -> List[str]:
+    """Divide the content respecting the tokens limits of the model"""
+    chunk_size = LLM_MODELS[model]["max_tokens"]
+    chunks = []
+    current_chunk = []
+    current_size = 0
+    # Split by pages to keep the consistency
+    pages = content.split("--- Page:")
+    for page in pages:
+        page_size = len(page)
+        if current_size + page_size <= chunk_size:
+            current_chunk.append(page)
+            current_size += page_size
+        else:
+            # Save the current chunk
+            if current_chunk:
+                chunks.append("--- Page:".join(current_chunk))
+            # Start a new chunk
+            current_chunk = [page]
+            current_size = page_size
+    # Add the last chunk
+    if current_chunk:
+        chunks.append("--- Page:".join(current_chunk))
+    return chunks
+
+
+def filter_content_by_relevance(
+    content: str,
+    keywords: List[str],
+    model: str,
+) -> Dict[str, str]:
+    """Filtre le contenu pour ne garder que les parties pertinentes"""
+    try:
+        # Log pour debug
+        st.write(
+            f"Début du filtrage - "
+            f"Taille du contenu: {len(content)} caractères"
+        )
+        # Diviser en chunks selon le modèle choisi
+        chunks = split_content_in_chunks(content, model)
+        st.write(f"Nombre de chunks: {len(chunks)}")
+        filtered_chunks = []
+        # Traiter chaque chunk
+        for i, chunk in enumerate(chunks):
+            st.write(f"Traitement du chunk {i+1}/{len(chunks)}")
+            prompt = (
+                "Filtrer le contenu suivant pour ne garder que les "
+                "informations pertinentes.\n"
+                "Ne conserver que:\n"
+                "1. Les informations tarifaires (prix, montants en €)\n"
+                "2. Les conditions d'éligibilité\n"
+                "3. Les réductions et tarifs sociaux\n"
+                "4. Les zones géographiques concernées\n\n"
+                "IMPORTANT:\n"
+                "- Garder uniquement les phrases pertinentes\n"
+                "- Conserver la structure Source/Page\n"
+                "- Ignorer tout contenu non lié aux tarifs\n"
+                "- TOUJOURS retourner le contenu filtré, même minimal\n"
+                "- Si aucune information pertinente n'est trouvée,\n"
+                "  retourner 'Aucune information tarifaire trouvée'\n\n"
+                f"Mots-clés importants: {', '.join(keywords)}\n\n"
+                "Format de réponse attendu:\n"
+                "- Garder les marqueurs '--- Page:' et leur contenu\n"
+                "- Retourner le texte filtré directement"
+            )
+
+            # Utiliser le streaming avec max_tokens limité
+            with client.messages.stream(
+                model=LLM_MODELS[model]["name"],
+                max_tokens=8000,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"{prompt}\n\nContenu à filtrer:\n{chunk}",
+                    }
+                ],
+            ) as stream:
+                chunk_content = []
+                for message in stream:
+                    if message.type == "content_block":
+                        chunk_content.append(message.text)
+                filtered_text = "".join(chunk_content).strip()
+                if filtered_text:  # Check that the text is not empty
+                    filtered_chunks.append(filtered_text)
+                    st.write(
+                        f"✓ Chunk {i+1} filtré - "
+                        f"Taille: {len(filtered_text)} caractères"
+                    )
+        # Combine the results
+        combined_result = "\n\n".join(filtered_chunks)
+        st.write(
+            f"Filtrage terminé - "
+            f"Taille du résultat: {len(combined_result)} caractères"
+        )
+        if not combined_result.strip():
+            return {
+                "Contenu filtré": "Pas d'info tarifaire pertinente trouvée"
+            }
+        return {"Contenu filtré": combined_result}
+    except Exception as e:
+        st.error(f"Erreur de filtrage : {str(e)}")
+        st.write("Détails de l'erreur:", e)
+        return {"Contenu filtré": f"Erreur lors du filtrage : {str(e)}"}
+
+
+def aggregate_and_deduplicate(contents: Dict[str, str], model: str) -> str:
+    """Agrège et déduplique le contenu de plusieurs sources"""
+    try:
+        all_content = "\n\n".join(contents.values())
+        message = client.messages.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""Agréger et dédupliquer le contenu suivant:
+                1. Fusionner les informations similaires
+                2. Éliminer les doublons
+                3. Garder les informations les plus complètes
+                4. Conserver la structure tarifaire
+
+                Contenu:
+                {all_content}""",
+                }
+            ],
+        )
+        return message.content[0].text
+    except Exception as e:
+        st.error(f"Erreur d'agrégation : {str(e)}")
+        return ""
+
+
+def compute_cosine_similarity(content: str, keywords: List[str]) -> float:
+    """Calcule la similarité cosinus entre le contenu et les mots-clés"""
+    vectorizer = TfidfVectorizer(lowercase=True, strip_accents="unicode")
+    # Préparer les textes
+    texts = [content, " ".join(keywords)]
+    tfidf_matrix = vectorizer.fit_transform(texts)
+    # Calculer la similarité
+    similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+    return similarity
+
+
+def structure_content_as_json(content: str, model: str) -> List[Dict]:
+    """Structure le contenu au format JSON spécifié"""
+    try:
+        message = client.messages.create(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""Extraire et structurer les informations
+                tarifaires du contenu suivant en JSON avec ce format exact:
+                [{{
+                    "règle": str,  # condition d'éligibilité
+                    "tarif": str,  # montant avec virgule (ex: "24,40")
+                    "unite": str,  # "an", "mois", "semaine"
+                    "groupe": str,  # généralement "1"
+                    "zone": str,  # zones (ex: "1 à 5")
+                    "reduction": str  # "-50%", "-75%", "-100%", ""
+                }}]
+
+                Contenu:
+                {content}""",
+                }
+            ],
+        )
+        return json.loads(message.content[0].text)
+    except Exception as e:
+        st.error(f"Erreur de structuration : {str(e)}")
+        return []
 
 
 # Interface Streamlit
@@ -318,129 +525,224 @@ if selected_aom:
     for source in sources.split(" | "):
         st.write(f"- {source}")
     st.subheader("Pipeline d'analyse")
-    # Étape 1: Concaténation du contenu
-    with st.expander("1️⃣ Concaténation du contenu"):
-        st.write("Assemblage de toutes les pages scrapées...")
-        content = get_aom_content(selected_aom)
-        st.text_area(
-            "Contenu assemblé", value=content, height=200, disabled=True
-        )
-    # Étape 2: Analyse avec Claude
-    with st.expander("2️⃣ Analyse du contenu avec Claude"):
-        if st.button("Lancer l'analyse"):
-            with st.spinner("Analyse en cours..."):
-                analysis = analyze_content_with_claude(content)
-                if analysis:  # Vérifier que l'analyse n'est pas None
-                    # Afficher le score global
-                    st.metric(
-                        "Score global de pertinence",
-                        format_score(analysis["score_global"]),
-                    )
-                    # Afficher les scores détaillés
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric(
-                            "Score tarifs",
-                            format_score(
-                                analysis["details_score"]["presence_tarifs"]
-                            ),
-                        )
-                    with col2:
-                        st.metric(
-                            "Score conditions",
-                            format_score(
-                                analysis["details_score"][
-                                    "presence_conditions"
-                                ]
-                            ),
-                        )
-                    with col3:
-                        st.metric(
-                            "Score tarif solidaire",
-                            format_score(
-                                analysis["details_score"][
-                                    "presence_tarif_solidaire"
-                                ]
-                            ),
-                        )
-                    # Afficher les sources les plus pertinentes
-                    st.markdown("### Sources les plus pertinentes")
-                    for url in analysis["sources_pertinentes"]:
-                        st.write(f"- {url}")
-                    # Afficher l'analyse détaillée
-                    st.markdown("### Analyse détaillée")
-                    st.write(analysis["analyse_detaillee"])
+    # Step 0: Configuration des mots-clés
+    st.header("🏷️ Étape 0 : Configuration des mots-clés")
 
-    # Ajouter la gestion des mots-clés
     if "available_keywords" not in st.session_state:
         st.session_state.available_keywords = default_keywords.copy()
     if "selected_keywords" not in st.session_state:
         st.session_state.selected_keywords = default_keywords.copy()
 
-    # Champ pour ajouter des mots-clés
-    new_keyword = st.text_input(
-        "Ajouter un nouveau mot-clé :",
-        placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
-    )
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        new_keyword = st.text_input(
+            "Ajouter un nouveau mot-clé :",
+            placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
+            help="Le nouveau mot-clé sera ajouté à la liste disponible",
+        )
+    with col2:
+        selected_model = st.selectbox(
+            "Modèle LLM à utiliser :",
+            options=list(LLM_MODELS.keys()),
+            key="selected_llm",
+        )
+
     if new_keyword:
         if new_keyword not in st.session_state.available_keywords:
             st.session_state.available_keywords.append(new_keyword)
             st.session_state.selected_keywords.append(new_keyword)
             st.rerun()
 
-    # Sélection des mots-clés
     selected_keywords = st.multiselect(
-        "🏷️ Mots-clés pour l'analyse :",
+        "Mots-clés pour l'analyse :",
         options=st.session_state.available_keywords,
         default=st.session_state.selected_keywords,
     )
 
-    # Modifier l'expander d'analyse
-    with st.expander("1️⃣ Extraction des passages pertinents"):
-        st.write("Recherche des passages contenant les mots-clés...")
-        content = get_aom_content(selected_aom)
-        relevant_passages = extract_relevant_passages(
-            content, selected_keywords
+    # Step 1: Affichage du contenu scrapé
+    st.header("📑 Étape 1 : Contenu scrapé")
+    with st.expander("Afficher le contenu brut"):
+        sources = next((a[3] for a in aoms if a[0] == selected_aom), "").split(
+            " | "
         )
 
-        for url, passages in relevant_passages.items():
-            if passages:
-                st.markdown(f"**Source : {url}**")
-                for passage in passages:
-                    st.markdown(f"- {passage}")
+        if st.button("Charger le contenu", key="load_content"):
+            sources_content = {}
+            tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
 
-    # Modifier l'interface pour afficher les informations tarifaires
-    with st.expander("3️⃣ Extraction des tarifs"):
-        if st.button("Extraire les tarifs"):
-            with st.spinner("Extraction des tarifs en cours..."):
-                tarifs = extract_tarif_info(content)
-                if tarifs:
-                    # Créer un DataFrame pour un affichage plus structuré
-                    df = pd.DataFrame(tarifs)
-
-                    # Trier par type de règle et montant
-                    df = df.sort_values(["règle", "tarif"])
-
-                    # Afficher le tableau
-                    st.dataframe(
-                        df,
-                        column_config={
-                            "règle": "Condition d'éligibilité",
-                            "tarif": "Tarif (€)",
-                            "unite": "Période",
-                            "zone": "Zones",
-                            "reduction": "Réduction",
-                        },
-                        hide_index=True,
+            for i, source in enumerate(sources):
+                with tabs[i]:
+                    st.write(f"URL: {source}")
+                    content = get_aom_content_by_source(selected_aom, source)
+                    sources_content[source] = content
+                    st.text_area(
+                        "Contenu", value=content, height=300, disabled=True
                     )
+            # Sauvegarder dans session_state pour les étapes suivantes
+            st.session_state.sources_content = sources_content
 
-                    # Ajouter un bouton pour télécharger les données
-                    st.download_button(
-                        "💾 Télécharger les tarifs (JSON)",
-                        data=json.dumps(tarifs, ensure_ascii=False, indent=2),
-                        file_name=f"tarifs_{selected_aom}.json",
-                        mime="application/json",
+    # Step 2: Filtrage du contenu
+    st.header("🔍 Étape 2 : Filtrage du contenu")
+    with st.expander("Filtrer le contenu pertinent"):
+        if st.button("Lancer le filtrage", key="filter_content"):
+            if "sources_content" not in st.session_state:
+                st.error("Veuillez d'abord charger le contenu dans l'étape 1")
+                st.stop()
+
+            log_container = st.empty()
+            progress_bar = st.progress(0)
+            tabs = st.tabs(
+                [
+                    f"Source {i+1}"
+                    for i in range(len(st.session_state.sources_content))
+                ]
+            )
+            longest_source = max(
+                st.session_state.sources_content.items(),
+                key=lambda x: len(x[1]),
+            )
+            total_chunks = len(
+                split_content_in_chunks(longest_source[1], selected_model)
+            )
+            # Traiter chaque source
+            filtered_contents = {}
+            for i, (source, content) in enumerate(
+                st.session_state.sources_content.items()
+            ):
+                with tabs[i]:
+                    st.write(f"URL: {source}")
+                    # Afficher les informations de la source en cours
+                    log_container.info(
+                        f"Traitement de la source {i+1}: {source}"
                     )
+                    log_container.write(
+                        f"Taille du contenu: {len(content)} caractères"
+                    )
+                    chunks = split_content_in_chunks(content, selected_model)
+                    log_container.write(
+                        f"Nombre de chunks pour cette source: {len(chunks)}"
+                    )
+                    filtered_chunks = []
+                    for j, chunk in enumerate(chunks):
+                        # Mettre à jour le log pour le chunk en cours
+                        log_container.info(
+                            f"Filtrage du chunk {j+1}/{len(chunks)}"
+                        )
+                        with st.spinner(
+                            f"Filtrage du chunk {j+1}/{len(chunks)}"
+                        ):
+                            prompt = f"""Filtrer le contenu suivant pour ne
+                            garder que:
+                            1. Les informations tarifaires
+                            (prix, montants en €)
+                            2. Les conditions d'éligibilité
+                            3. Les réductions et tarifs sociaux
+                            4. Les zones géographiques concernées
+                            IMPORTANT:
+                            - Garder uniquement les phrases pertinentes
+                            - Conserver la structure Source/Page
+                            - Ignorer tout contenu non lié aux tarifs,
+                            critères d'éligibilité, réductions, etc.
+                            Mots-clés importants:
+                            {', '.join(selected_keywords)}
+                            """
+
+                            # Call Claude with streaming
+                            with client.messages.stream(
+                                model=LLM_MODELS[selected_model]["name"],
+                                max_tokens=8000,
+                                messages=[
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            f"{prompt}\n\n"
+                                            f"Contenu:\n{chunk}"
+                                        ),
+                                    }
+                                ],
+                            ) as stream:
+                                chunk_content = []
+                                for message in stream:
+                                    if message.type == "content_block":
+                                        chunk_content.append(message.text)
+                                filtered_text = "".join(chunk_content).strip()
+                                if filtered_text:
+                                    filtered_chunks.append(filtered_text)
+                                    log_container.write(
+                                        f"✓ Chunk {j+1} filtré - "
+                                        f"Taille: {len(filtered_text)}"
+                                        "caractères"
+                                    )
+                        progress = (i * total_chunks + j + 1) / (
+                            len(st.session_state.sources_content)
+                            * total_chunks
+                        )
+                        progress_bar.progress(min(progress, 1.0))
+                    # Combine the filtered chunks for this source
+                    filtered_content = "\n\n".join(filtered_chunks)
+                    filtered_contents[source] = filtered_content
+                    # Display the filtered content in the tab
+                    if filtered_content.strip():
+                        st.text_area(
+                            "Contenu filtré",
+                            value=filtered_content,
+                            height=300,
+                            disabled=True,
+                            key=f"filtered_content_{i}",
+                        )
+                    else:
+                        st.warning(
+                            "Aucun contenu pertinent trouvé dans cette source"
+                        )
+            # Save the filtered results for the next steps
+            st.session_state.filtered_contents = filtered_contents
+            # Final log
+            log_container.success("Filtrage terminé pour toutes les sources")
+
+    # Step 3: Agrégation et déduplication
+    st.header("🔄 Étape 3 : Agrégation et déduplication")
+    with st.expander("Agréger et dédupliquer"):
+        if st.button("Lancer l'agrégation", key="aggregate_content"):
+            if "filtered_contents" in st.session_state:
+                aggregated_content = aggregate_and_deduplicate(
+                    st.session_state.filtered_contents, selected_model
+                )
+                st.session_state.aggregated_content = aggregated_content
+                st.text_area(
+                    "Contenu agrégé",
+                    value=aggregated_content,
+                    height=300,
+                    disabled=True,
+                )
+
+    # Step 4: Calcul du score cosinus
+    st.header("📊 Étape 4 : Score de similarité")
+    with st.expander("Calculer le score"):
+        if st.button("Calculer le score", key="compute_score"):
+            if "aggregated_content" in st.session_state:
+                score = compute_cosine_similarity(
+                    st.session_state.aggregated_content, selected_keywords
+                )
+                st.metric("Score de similarité", f"{score:.2%}")
+
+    # Step 5: Structuration JSON
+    st.header("🔧 Étape 5 : Structuration JSON")
+    with st.expander("Structurer les données"):
+        if st.button("Structurer en JSON", key="structure_json"):
+            if "aggregated_content" in st.session_state:
+                structured_data = structure_content_as_json(
+                    st.session_state.aggregated_content, selected_model
+                )
+                st.json(structured_data)
+                # Download button
+                st.download_button(
+                    "💾 Download (JSON)",
+                    data=json.dumps(
+                        structured_data, ensure_ascii=False, indent=2
+                    ),
+                    file_name=f"tarifs_{selected_aom}.json",
+                    mime="application/json",
+                )
 
 st.subheader("Analyse de la pertinence des contenus")
 
@@ -480,10 +782,10 @@ if st.button("Analyser tous les AOMs"):
                     },
                 }
 
-            # Mettre à jour la barre de progression
+            # Update the progress bar
             progress_bar.progress((idx + 1) / len(aoms))
 
-    # Afficher le tableau de bord des scores
+    # Display the score dashboard
     score_df = pd.DataFrame(
         [
             {
