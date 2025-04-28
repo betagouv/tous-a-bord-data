@@ -2,14 +2,22 @@ import json
 import os
 from typing import Dict, List
 
+import ollama
 import pandas as pd
 import streamlit as st
 from anthropic import Anthropic
+from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
+
+# from openai import OpenAI
+from services.ollama_config import ensure_ollama_host
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import create_engine, text
 from utils.db_utils import get_postgres_cs, load_urls_data_from_db
+
+load_dotenv()
+
 
 st.title("Pipeline d'analyse du contenu")
 
@@ -17,32 +25,26 @@ st.title("Pipeline d'analyse du contenu")
 engine = create_engine(get_postgres_cs())
 
 # After the imports
-load_dotenv()
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-# Ajouter les mots-clés par défaut
-default_keywords = [
-    "tarif",
-    "abonnement",
-    "solidaire",
-    "pass",
-    "titre",
-    "ticket",
-    "réduit",
-    "jeune",
-    "senior",
-    "étudiant",
-]
 
 # Constantes pour les modèles LLM disponibles
 LLM_MODELS = {
+    "Claude 3 Haiku": {
+        "name": "claude-3-5-haiku-latest",
+        "max_tokens": 100000,
+    },
     "Claude 3 Sonnet": {
         "name": "claude-3-5-sonnet-latest",
         "max_tokens": 200000,
     },
-    "Claude 3 Haiku": {
-        "name": "claude-3-5-haiku-latest",
-        "max_tokens": 100000,
+    "Llama 3 (Ollama)": {
+        "name": "llama3:8b",
+        "max_tokens": 8000,  # ou la limite que tu veux
+    },
+    "Mixtral 8x7B": {
+        "name": "mixtral:8x7b",
+        "max_tokens": 32000,
     },
 }
 
@@ -214,28 +216,15 @@ def get_aom_content_by_source(siren: str, source_url: str) -> str:
 
 
 def split_content_in_chunks(content: str, model: str) -> List[str]:
-    """Divide the content respecting the tokens limits of the model"""
+    """Découpe le contenu en chunks de taille max_tokens (en caractères)"""
     chunk_size = LLM_MODELS[model]["max_tokens"]
+    # On découpe le texte brut, peu importe les pages
     chunks = []
-    current_chunk = []
-    current_size = 0
-    # Split by pages to keep the consistency
-    pages = content.split("--- Page:")
-    for page in pages:
-        page_size = len(page)
-        if current_size + page_size <= chunk_size:
-            current_chunk.append(page)
-            current_size += page_size
-        else:
-            # Save the current chunk
-            if current_chunk:
-                chunks.append("--- Page:".join(current_chunk))
-            # Start a new chunk
-            current_chunk = [page]
-            current_size = page_size
-    # Add the last chunk
-    if current_chunk:
-        chunks.append("--- Page:".join(current_chunk))
+    start = 0
+    while start < len(content):
+        end = start + chunk_size
+        chunks.append(content[start:end])
+        start = end
     return chunks
 
 
@@ -254,12 +243,19 @@ def filter_content_by_relevance(
         chunks = split_content_in_chunks(content, model)
         st.write(f"Nombre de chunks: {len(chunks)}")
 
-        # Un seul conteneur pour tout le texte filtré
         text_container = st.empty()
         filtered_content = ""
 
         for i, chunk in enumerate(chunks):
             st.write(f"Traitement du chunk {i+1}/{len(chunks)}")
+
+            # Affichage du chunk pour debug
+            st.info(
+                f"--- Chunk {i+1} ---\n"
+                f"Taille : {len(chunk)} caractères\n"
+                f"Contenu du chunk :\n{chunk[:2000]}"
+                + ("\n... (tronqué)" if len(chunk) > 2000 else "")
+            )
 
             prompt = (
                 "Extrais toutes les informations tarifaires des transports en "
@@ -284,26 +280,29 @@ def filter_content_by_relevance(
             )
 
             try:
-                stream = client.messages.create(
-                    model=LLM_MODELS[model]["name"],
-                    max_tokens=8000,
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=True,
-                )
+                if model == "Llama 3 (Ollama)":
+                    current_chunk_text = call_ollama(prompt, model="llama3:8b")
+                elif model == "Mixtral 8x7B":
+                    current_chunk_text = call_ollama(
+                        prompt, model="mixtral:8x7b"
+                    )
+                else:
+                    stream = client.messages.create(
+                        model=LLM_MODELS[model]["name"],
+                        max_tokens=8000,
+                        messages=[{"role": "user", "content": prompt}],
+                        stream=True,
+                    )
+                    current_chunk_text = ""
+                    for event in stream:
+                        if event.type == "content_block_delta":
+                            current_chunk_text += event.delta.text
 
-                current_chunk_text = ""
-                for event in stream:
-                    if event.type == "content_block_delta":
-                        current_chunk_text += event.delta.text
-
-                # Vérifier le contenu final du chunk
                 if "NO_TARIF_INFO" not in current_chunk_text:
-                    # Ajouter le contenu du chunk au contenu filtré total
                     if filtered_content:
                         filtered_content += "\n\n"
                     filtered_content += current_chunk_text
 
-                    # Mettre à jour l'affichage
                     if filtered_content.strip():
                         text_container.text_area(
                             "Contenu filtré",
@@ -349,28 +348,26 @@ def filter_content_by_relevance(
 
 def aggregate_and_deduplicate(contents: Dict[str, str], model: str) -> str:
     """Agrège et déduplique le contenu de plusieurs sources"""
-    try:
-        all_content = "\n\n".join(contents.values())
+    all_content = "\n\n".join(contents.values())
+    prompt = (
+        "Agréger et dédupliquer le contenu suivant:\n"
+        "1. Fusionner les informations similaires\n"
+        "2. Éliminer les doublons\n"
+        "3. Garder les informations les plus complètes\n"
+        "4. Conserver la structure tarifaire\n\n"
+        f"Contenu:\n{all_content}"
+    )
+    if model == "Llama 3 (Ollama)":
+        return call_ollama(prompt, model="llama3:8b")
+    elif model == "Mixtral 8x7B":
+        return call_ollama(prompt, model="mixtral:8x7b")
+    else:
         message = client.messages.create(
-            model=model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""Agréger et dédupliquer le contenu suivant:
-                1. Fusionner les informations similaires
-                2. Éliminer les doublons
-                3. Garder les informations les plus complètes
-                4. Conserver la structure tarifaire
-
-                Contenu:
-                {all_content}""",
-                }
-            ],
+            model=LLM_MODELS[model]["name"],
+            max_tokens=8000,
+            messages=[{"role": "user", "content": prompt}],
         )
         return message.content[0].text
-    except Exception as e:
-        st.error(f"Erreur d'agrégation : {str(e)}")
-        return ""
 
 
 def compute_cosine_similarity(content: str, keywords: List[str]) -> float:
@@ -388,7 +385,8 @@ def structure_content_as_json(content: str, model: str) -> List[Dict]:
     """Structure le contenu au format JSON spécifié"""
     try:
         message = client.messages.create(
-            model=model,
+            model=LLM_MODELS[model]["name"],
+            max_tokens=8000,
             messages=[
                 {
                     "role": "user",
@@ -412,6 +410,14 @@ def structure_content_as_json(content: str, model: str) -> List[Dict]:
     except Exception as e:
         st.error(f"Erreur de structuration : {str(e)}")
         return []
+
+
+def call_ollama(prompt, model="llama3:8b"):
+    ensure_ollama_host()
+    response = ollama.chat(
+        model=model, messages=[{"role": "user", "content": prompt}]
+    )
+    return response["message"]["content"]
 
 
 # Interface Streamlit
@@ -460,9 +466,9 @@ if selected_aom:
     st.header("🏷️ Étape 0 : Configuration des mots-clés")
 
     if "available_keywords" not in st.session_state:
-        st.session_state.available_keywords = default_keywords.copy()
+        st.session_state.available_keywords = DEFAULT_KEYWORDS.copy()
     if "selected_keywords" not in st.session_state:
-        st.session_state.selected_keywords = default_keywords.copy()
+        st.session_state.selected_keywords = DEFAULT_KEYWORDS.copy()
 
     col1, col2 = st.columns([2, 1])
     with col1:
