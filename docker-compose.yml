@@ -13,6 +13,8 @@ services:
       - GRIST_API_KEY=${GRIST_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OLLAMA_HOST=${OLLAMA_HOST}
+      - SCALEWAY_BASE_URL=${SCALEWAY_BASE_URL}
+      - SCALEWAY_API_KEY=${SCALEWAY_API_KEY}
       - STREAMLIT_SERVER_RUN_ON_SAVE=true
     depends_on:
       postgres:

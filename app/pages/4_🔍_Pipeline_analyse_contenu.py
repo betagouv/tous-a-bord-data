@@ -2,7 +2,6 @@ import json
 import os
 from typing import Dict, List
 
-import ollama
 import pandas as pd
 import streamlit as st
 from anthropic import Anthropic
@@ -10,7 +9,7 @@ from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
 
 # from openai import OpenAI
-from services.ollama_config import ensure_ollama_host
+from services.llm_services import call_anthropic, call_ollama
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import create_engine, text
@@ -18,6 +17,22 @@ from utils.db_utils import get_postgres_cs, load_urls_data_from_db
 
 load_dotenv()
 
+# # Initialize the client with your base URL and API key
+# client = OpenAI(
+#     base_url=os.getenv("SCALEWAY_BASE_URL"),
+#     api_key=os.getenv("SCALEWAY_API_KEY")
+# )
+# response = client.chat.completions.create(
+#   model="llama-3.1-8b-instruct",
+#   messages=[{
+#     "role": "user",
+#     "content": "Sing me a song",
+#   }],
+#   stream=True,
+# )
+# for chunk in response:
+#     if chunk.choices and chunk.choices[0].delta.content:
+#         st.write(chunk.choices[0].delta.content, end="")
 
 st.title("Pipeline d'analyse du contenu")
 
@@ -281,22 +296,14 @@ def filter_content_by_relevance(
 
             try:
                 if model == "Llama 3 (Ollama)":
-                    current_chunk_text = call_ollama(prompt, model="llama3:8b")
-                elif model == "Mixtral 8x7B":
                     current_chunk_text = call_ollama(
-                        prompt, model="mixtral:8x7b"
+                        prompt,
+                        model=LLM_MODELS[model]["name"],
                     )
                 else:
-                    stream = client.messages.create(
-                        model=LLM_MODELS[model]["name"],
-                        max_tokens=8000,
-                        messages=[{"role": "user", "content": prompt}],
-                        stream=True,
+                    current_chunk_text = call_anthropic(
+                        prompt, model=LLM_MODELS[model]["name"]
                     )
-                    current_chunk_text = ""
-                    for event in stream:
-                        if event.type == "content_block_delta":
-                            current_chunk_text += event.delta.text
 
                 if "NO_TARIF_INFO" not in current_chunk_text:
                     if filtered_content:
@@ -410,14 +417,6 @@ def structure_content_as_json(content: str, model: str) -> List[Dict]:
     except Exception as e:
         st.error(f"Erreur de structuration : {str(e)}")
         return []
-
-
-def call_ollama(prompt, model="llama3:8b"):
-    ensure_ollama_host()
-    response = ollama.chat(
-        model=model, messages=[{"role": "user", "content": prompt}]
-    )
-    return response["message"]["content"]
 
 
 # Interface Streamlit
