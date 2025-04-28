@@ -7,32 +7,13 @@ import streamlit as st
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
-
-# from openai import OpenAI
-from services.llm_services import call_anthropic, call_ollama
+from services.llm_services import call_anthropic, call_ollama, call_scaleway
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import create_engine, text
 from utils.db_utils import get_postgres_cs, load_urls_data_from_db
 
 load_dotenv()
-
-# # Initialize the client with your base URL and API key
-# client = OpenAI(
-#     base_url=os.getenv("SCALEWAY_BASE_URL"),
-#     api_key=os.getenv("SCALEWAY_API_KEY")
-# )
-# response = client.chat.completions.create(
-#   model="llama-3.1-8b-instruct",
-#   messages=[{
-#     "role": "user",
-#     "content": "Sing me a song",
-#   }],
-#   stream=True,
-# )
-# for chunk in response:
-#     if chunk.choices and chunk.choices[0].delta.content:
-#         st.write(chunk.choices[0].delta.content, end="")
 
 st.title("Pipeline d'analyse du contenu")
 
@@ -45,22 +26,48 @@ client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Constantes pour les modèles LLM disponibles
 LLM_MODELS = {
-    "Claude 3 Haiku": {
+    "Llama 3 (Ollama)": {
+        "name": "llama3:8b",
+        "max_tokens": 128000,
+    },
+    "Llama 3.1 8B Instruct FP16 (Ollama)": {
+        "name": "llama3.1:8b-instruct-fp16",
+        "max_tokens": 128000,
+    },
+    "Llama 3.3 70B (Scaleway)": {
+        "name": "llama-3.3-70b-instruct",
+        "max_tokens": 131000,
+    },
+    "Llama 3.1 8B (Scaleway)": {
+        "name": "llama-3.1-8b-instruct",
+        "max_tokens": 128000,
+    },
+    "Mistral Nemo (Scaleway)": {
+        "name": "mistral-nemo-instruct-2407",
+        "max_tokens": 128000,
+    },
+    "Qwen 2.5 32B (Scaleway)": {
+        "name": "qwen2.5-coder-32b-instruct",
+        "max_tokens": 32000,
+    },
+    # not really supported yet
+    # "DeepSeek r1 (Scaleway)": {
+    #     "name": "deepseek-r1",
+    #     "max_tokens": 20000,
+    # },
+    "DeepSeek r1 distill (Scaleway)": {
+        "name": "deepseek-r1-distill-llama-70b",
+        "max_tokens": 32000,
+    },
+    "Claude 3 Haiku (Anthropic)": {
         "name": "claude-3-5-haiku-latest",
         "max_tokens": 100000,
     },
-    "Claude 3 Sonnet": {
-        "name": "claude-3-5-sonnet-latest",
-        "max_tokens": 200000,
-    },
-    "Llama 3 (Ollama)": {
-        "name": "llama3:8b",
-        "max_tokens": 8000,  # ou la limite que tu veux
-    },
-    "Mixtral 8x7B": {
-        "name": "mixtral:8x7b",
-        "max_tokens": 32000,
-    },
+    # too expansive
+    # "Claude 3 Sonnet (Anthropic)": {
+    #     "name": "claude-3-5-sonnet-latest",
+    #     "max_tokens": 200000,
+    # },
 }
 
 
@@ -269,7 +276,6 @@ def filter_content_by_relevance(
                 f"--- Chunk {i+1} ---\n"
                 f"Taille : {len(chunk)} caractères\n"
                 f"Contenu du chunk :\n{chunk[:2000]}"
-                + ("\n... (tronqué)" if len(chunk) > 2000 else "")
             )
 
             prompt = (
@@ -295,15 +301,21 @@ def filter_content_by_relevance(
             )
 
             try:
-                if model == "Llama 3 (Ollama)":
+                if "Ollama" in model:
                     current_chunk_text = call_ollama(
                         prompt,
                         model=LLM_MODELS[model]["name"],
                     )
-                else:
+                elif "Anthropic" in model:
                     current_chunk_text = call_anthropic(
                         prompt, model=LLM_MODELS[model]["name"]
                     )
+                elif "Scaleway" in model:
+                    current_chunk_text = call_scaleway(
+                        prompt, model=LLM_MODELS[model]["name"]
+                    )
+                else:
+                    raise ValueError(f"Modèle non supporté : {model}")
 
                 if "NO_TARIF_INFO" not in current_chunk_text:
                     if filtered_content:

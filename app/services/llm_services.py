@@ -1,9 +1,11 @@
 import os
 
 import ollama
-import streamlit as st
+
+# import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from openai import OpenAI
 
 
 # OLLAMA with small models
@@ -47,11 +49,10 @@ def call_anthropic(prompt, model):
     client = AnthropicWrapper()
     stream = client.stream_anthropic(
         model=model,
-        max_tokens=1024,  # max tokens for output
+        max_tokens=4096,  # max tokens for output
         messages=[{"role": "user", "content": prompt}],
         stream=True,
     )
-    st.write(f"---> 3 {model}")
     current_chunk_text = ""
     for event in stream:
         if event.type == "content_block_delta":
@@ -60,3 +61,23 @@ def call_anthropic(prompt, model):
 
 
 # TODO: add openai client for scaleways models
+def call_scaleway(prompt, model):
+    client = OpenAI(
+        base_url=os.getenv(
+            "SCALEWAY_API_URL"
+        ),  # Scaleway's Generative APIs service URL
+        api_key=os.getenv(
+            "SCALEWAY_API_KEY"
+        ),  # Your unique API key from Scaleway
+    )
+    stream = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=4096,  # max tokens for output
+        stream=True,
+    )
+    current_chunk_text = ""
+    for event in stream:
+        if event.choices and event.choices[0].delta.content:
+            current_chunk_text += event.choices[0].delta.content
+    return current_chunk_text
