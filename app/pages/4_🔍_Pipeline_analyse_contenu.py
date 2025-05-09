@@ -71,6 +71,26 @@ LLM_MODELS = {
 }
 
 
+def select_model(model_name: str, prompt: str) -> str:
+    """Select the model based on the model name"""
+    if "Ollama" in model_name:
+        current_chunk_text = call_ollama(
+            prompt,
+            model=LLM_MODELS[model_name]["name"],
+        )
+    elif "Anthropic" in model_name:
+        current_chunk_text = call_anthropic(
+            prompt, model=LLM_MODELS[model_name]["name"]
+        )
+    elif "Scaleway" in model_name:
+        current_chunk_text = call_scaleway(
+            prompt, model=LLM_MODELS[model_name]["name"]
+        )
+    else:
+        raise ValueError(f"Modèle non supporté : {model_name}")
+    return current_chunk_text
+
+
 def format_score(score: float) -> str:
     """Formate un score entre 0 et 1 en pourcentage limité à 100%"""
     return f"{min(score, 1.0):.2%}"
@@ -301,21 +321,7 @@ def filter_content_by_relevance(
             )
 
             try:
-                if "Ollama" in model:
-                    current_chunk_text = call_ollama(
-                        prompt,
-                        model=LLM_MODELS[model]["name"],
-                    )
-                elif "Anthropic" in model:
-                    current_chunk_text = call_anthropic(
-                        prompt, model=LLM_MODELS[model]["name"]
-                    )
-                elif "Scaleway" in model:
-                    current_chunk_text = call_scaleway(
-                        prompt, model=LLM_MODELS[model]["name"]
-                    )
-                else:
-                    raise ValueError(f"Modèle non supporté : {model}")
+                current_chunk_text = select_model(model, prompt)
 
                 if "NO_TARIF_INFO" not in current_chunk_text:
                     if filtered_content:
@@ -376,17 +382,8 @@ def aggregate_and_deduplicate(contents: Dict[str, str], model: str) -> str:
         "4. Conserver la structure tarifaire\n\n"
         f"Contenu:\n{all_content}"
     )
-    if model == "Llama 3 (Ollama)":
-        return call_ollama(prompt, model="llama3:8b")
-    elif model == "Mixtral 8x7B":
-        return call_ollama(prompt, model="mixtral:8x7b")
-    else:
-        message = client.messages.create(
-            model=LLM_MODELS[model]["name"],
-            max_tokens=8000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return message.content[0].text
+    result = select_model(model, prompt)
+    return result
 
 
 def compute_cosine_similarity(content: str, keywords: List[str]) -> float:
