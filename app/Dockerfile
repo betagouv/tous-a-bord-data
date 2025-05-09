@@ -46,12 +46,12 @@ RUN pip install --no-cache-dir selenium
 
 # Installation de spaCy et du modèle français
 RUN pip install --no-cache-dir spacy
-RUN python -m spacy download fr_dep_news_trf
+RUN python -m spacy download fr_core_news_lg
 
 COPY . .
 
 EXPOSE 8501
 
 HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
-
-ENTRYPOINT ["streamlit", "run", "🚎_Critères_d'éligibilité_par_AOM.py", "--server.port=8501", "--server.address=0.0.0.0"] 
+# --server.fileWatcherType=none fix spacy torch error
+ENTRYPOINT ["streamlit", "run", "🚎_Critères_d'éligibilité_par_AOM.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.fileWatcherType=none"] 
