@@ -44,6 +44,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Installer Selenium
 RUN pip install --no-cache-dir selenium
 
+# Installation de spaCy et du modèle français
+RUN pip install --no-cache-dir spacy
+RUN python -m spacy download fr_dep_news_trf
+
 COPY . .
 
 EXPOSE 8501
