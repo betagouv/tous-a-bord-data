@@ -478,19 +478,11 @@ if selected_aom:
     if "selected_keywords" not in st.session_state:
         st.session_state.selected_keywords = DEFAULT_KEYWORDS.copy()
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        new_keyword = st.text_input(
-            "Ajouter un nouveau mot-clé :",
-            placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
-            help="Le nouveau mot-clé sera ajouté à la liste disponible",
-        )
-    with col2:
-        selected_model = st.selectbox(
-            "Modèle LLM à utiliser :",
-            options=list(LLM_MODELS.keys()),
-            key="selected_llm",
-        )
+    new_keyword = st.text_input(
+        "Ajouter un nouveau mot-clé :",
+        placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
+        help="Le nouveau mot-clé sera ajouté à la liste disponible",
+    )
 
     if new_keyword:
         if new_keyword not in st.session_state.available_keywords:
@@ -511,56 +503,50 @@ if selected_aom:
             " | "
         )
 
-        if st.button("Charger le contenu", key="load_content"):
-            sources_content = {}
-            tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
-
-            for i, source in enumerate(sources):
-                with tabs[i]:
-                    st.write(f"URL: {source}")
-                    content = get_aom_content_by_source(selected_aom, source)
-                    sources_content[source] = content
-                    st.text_area(
-                        "Contenu", value=content, height=300, disabled=True
-                    )
-            # Sauvegarder dans session_state pour les étapes suivantes
-            st.session_state.sources_content = sources_content
+        # Chargement automatique du contenu des sources
+        sources_content = {}
+        tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
+        for i, source in enumerate(sources):
+            with tabs[i]:
+                st.write(f"URL: {source}")
+                content = get_aom_content_by_source(selected_aom, source)
+                sources_content[source] = content
+                st.text_area(
+                    "Contenu", value=content, height=300, disabled=True
+                )
+        # Sauvegarder dans session_state pour les étapes suivantes
+        st.session_state.sources_content = sources_content
 
     # Step 2: Filtrage du contenu
     st.header("🔍 Étape 2 : Filtrage du contenu")
     with st.expander("Filtrer le contenu pertinent"):
+        selected_model_filter = st.selectbox(
+            "Modèle LLM pour le filtrage :",
+            options=list(LLM_MODELS.keys()),
+            key="selected_llm_filter",
+        )
+
         if st.button("Lancer le filtrage", key="filter_content"):
             if "sources_content" not in st.session_state:
                 st.error("Veuillez d'abord charger le contenu dans l'étape 1")
                 st.stop()
 
-            # Créer la barre de progression globale
             progress_bar = st.progress(0)
-
-            # Créer les onglets
             sources_count = len(st.session_state.sources_content)
             tabs = st.tabs([f"Source {i+1}" for i in range(sources_count)])
-
-            # Traiter chaque source
             filtered_contents = {}
 
-            # Itérer sur les sources
             sources_items = st.session_state.sources_content.items()
             for i, (source, content) in enumerate(sources_items):
                 with tabs[i]:
                     st.write(f"URL: {source}")
-
-                    # Appeler la fonction de filtrage
                     filtered_result = filter_content_by_relevance(
                         content=content,
                         keywords=selected_keywords,
-                        model=selected_model,
+                        model=selected_model_filter,
                     )
-
-                    # Mettre à jour la barre de progression
                     progress_bar.progress((i + 1) / sources_count)
 
-                    # Afficher le contenu filtré
                     if filtered_result["Contenu filtré"].strip():
                         st.text_area(
                             "Contenu filtré",
@@ -573,26 +559,32 @@ if selected_aom:
                             "Contenu filtré"
                         ]
                     else:
-                        msg = (
+                        st.warning(
                             "Aucun contenu pertinent trouvé dans cette source"
                         )
-                        st.warning(msg)
 
-            # Sauvegarder les résultats filtrés
             if filtered_contents:
                 st.session_state.filtered_contents = filtered_contents
                 st.success("Filtrage terminé pour toutes les sources")
             else:
-                msg = "Aucun contenu pertinent n'a été trouvé dans les sources"
-                st.error(msg)
+                st.error(
+                    "Aucun contenu pertinent n'a été trouvé dans les sources"
+                )
 
     # Step 3: Agrégation et déduplication
     st.header("🔄 Étape 3 : Agrégation et déduplication")
     with st.expander("Agréger et dédupliquer"):
+        selected_model_aggregate = st.selectbox(
+            "Modèle LLM pour l'agrégation :",
+            options=list(LLM_MODELS.keys()),
+            key="selected_llm_aggregate",
+        )
+
         if st.button("Lancer l'agrégation", key="aggregate_content"):
             if "filtered_contents" in st.session_state:
                 aggregated_content = aggregate_and_deduplicate(
-                    st.session_state.filtered_contents, selected_model
+                    st.session_state.filtered_contents,
+                    selected_model_aggregate,
                 )
                 st.session_state.aggregated_content = aggregated_content
                 st.text_area(
@@ -615,10 +607,17 @@ if selected_aom:
     # Step 5: Structuration JSON
     st.header("🔧 Étape 5 : Structuration JSON")
     with st.expander("Structurer les données"):
+        selected_model_structure = st.selectbox(
+            "Modèle LLM pour la structuration :",
+            options=list(LLM_MODELS.keys()),
+            key="selected_llm_structure",
+        )
+
         if st.button("Structurer en JSON", key="structure_json"):
             if "aggregated_content" in st.session_state:
                 structured_data = structure_content_as_json(
-                    st.session_state.aggregated_content, selected_model
+                    st.session_state.aggregated_content,
+                    selected_model_structure,
                 )
                 st.json(structured_data)
                 # Download button
