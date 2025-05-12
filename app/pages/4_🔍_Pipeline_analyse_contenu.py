@@ -4,10 +4,19 @@ from typing import Dict, List
 
 import pandas as pd
 import streamlit as st
+import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
+
+# Nouveaux imports
 from services.llm_services import call_anthropic, call_ollama, call_scaleway
+from services.nlp_services import (
+    extract_markdown_text,
+    filter_text_with_spacy,
+    load_spacy_model,
+    normalize_text,
+)
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import create_engine, text
@@ -28,10 +37,6 @@ client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 LLM_MODELS = {
     "Llama 3 (Ollama)": {
         "name": "llama3:8b",
-        "max_tokens": 128000,
-    },
-    "Llama 3.1 8B Instruct FP16 (Ollama)": {
-        "name": "llama3.1:8b-instruct-fp16",
         "max_tokens": 128000,
     },
     "Llama 3.3 70B (Scaleway)": {
@@ -257,16 +262,39 @@ def get_aom_content_by_source(siren: str, source_url: str) -> str:
     return "\n\n".join(content_parts)
 
 
+def get_tokenizer_for_model():
+    """Retourne le bon tokenizer en fonction du modèle"""
+    return tiktoken.get_encoding("cl100k_base").encode
+
+
+def count_tokens(text: str) -> int:
+    """Compte le nombre de tokens dans un texte (version générale)"""
+    # Utiliser cl100k comme tokenizer général
+    return len(tiktoken.encoding_for_model("gpt-3.5-turbo").encode(text))
+
+
 def split_content_in_chunks(content: str, model: str) -> List[str]:
-    """Découpe le contenu en chunks de taille max_tokens (en caractères)"""
-    chunk_size = LLM_MODELS[model]["max_tokens"]
-    # On découpe le texte brut, peu importe les pages
+    """Découpe le contenu en chunks de taille max_tokens"""
+    max_tokens = LLM_MODELS[model]["max_tokens"]
+    tokenizer = get_tokenizer_for_model()
+
+    # Utiliser le même tokenizer pour l'encodage et le décodage
+    try:
+        decoder = tiktoken.get_encoding("cl100k_base").decode
+    except KeyError:
+        st.error("Erreur de décodage, utilisation de cl100k_base")
+        decoder = tiktoken.get_encoding("cl100k_base").decode
+
+    # Encoder le texte
+    tokens = tokenizer(content)
+
+    # Découper en chunks
     chunks = []
-    start = 0
-    while start < len(content):
-        end = start + chunk_size
-        chunks.append(content[start:end])
-        start = end
+    for i in range(0, len(tokens), max_tokens):
+        chunk_tokens = tokens[i : i + max_tokens]
+        chunk_text = decoder(chunk_tokens)
+        chunks.append(chunk_text)
+
     return chunks
 
 
@@ -277,10 +305,8 @@ def filter_content_by_relevance(
 ) -> Dict[str, str]:
     """Filtre le contenu pour ne garder que les parties pertinentes"""
     try:
-        msg = (
-            "Début du filtrage - "
-            f"Taille du contenu: {len(content)} caractères"
-        )
+        nb_tokens = count_tokens(content)
+        msg = "Début du filtrage - " f"Nombre de tokens: {nb_tokens}"
         st.write(msg)
         chunks = split_content_in_chunks(content, model)
         st.write(f"Nombre de chunks: {len(chunks)}")
@@ -292,9 +318,10 @@ def filter_content_by_relevance(
             st.write(f"Traitement du chunk {i+1}/{len(chunks)}")
 
             # Affichage du chunk pour debug
+            chunk_tokens = count_tokens(chunk)
             st.info(
                 f"--- Chunk {i+1} ---\n"
-                f"Taille : {len(chunk)} caractères\n"
+                f"Nombre de tokens : {chunk_tokens}\n"
                 f"Contenu du chunk :\n{chunk[:2000]}"
             )
 
@@ -336,9 +363,10 @@ def filter_content_by_relevance(
                             disabled=True,
                         )
 
+                    chunk_tokens = count_tokens(current_chunk_text)
                     msg = (
                         f"✓ Chunk {i+1} filtré - "
-                        f"Taille: {len(current_chunk_text)} caractères"
+                        f"Nombre de tokens: {chunk_tokens}"
                     )
                     st.write(msg)
                 else:
@@ -355,9 +383,10 @@ def filter_content_by_relevance(
                 continue
 
         if filtered_content:
+            nb_tokens = count_tokens(filtered_content)
             msg = (
                 f"Filtrage terminé - "
-                f"Taille du résultat: {len(filtered_content)} caractères"
+                f"Nombre de tokens du résultat: {nb_tokens}"
             )
             st.write(msg)
             return {"Contenu filtré": filtered_content}
@@ -371,15 +400,26 @@ def filter_content_by_relevance(
         return {"Contenu filtré": f"Erreur lors du filtrage : {str(e)}"}
 
 
-def aggregate_and_deduplicate(contents: Dict[str, str], model: str) -> str:
-    """Agrège et déduplique le contenu de plusieurs sources"""
+def deduplicate_content(contents: Dict[str, str], model: str) -> str:
+    """Deduplicate the content of multiple sources"""
     all_content = "\n\n".join(contents.values())
     prompt = (
-        "Agréger et dédupliquer le contenu suivant:\n"
-        "1. Fusionner les informations similaires\n"
-        "2. Éliminer les doublons\n"
-        "3. Garder les informations les plus complètes\n"
-        "4. Conserver la structure tarifaire\n\n"
+        "Extrais toutes les informations tarifaires des transports en "
+        "commun à partir du texte suivant. Garde exactement :\n"
+        "1. Les tarifs standards (billets, carnets, abonnements)\n"
+        "2. Les tarifs réduits et leurs conditions\n"
+        "3. Les tarifs solidaires et leurs conditions d'éligibilité\n"
+        "4. Les zones géographiques concernées\n\n"
+        "IMPORTANT:\n"
+        "- Conserve les montants exacts et les unités (€)\n"
+        "- Garde toutes les conditions d'éligibilité\n"
+        "- Ne fais pas de résumé ou d'interprétation\n"
+        "- Retourne le texte brut avec sa structure\n"
+        "- Si tu trouves des informations tarifaires, retourne-les\n"
+        "- Ne retourne PAS de texte formaté ou de liste\n"
+        "- Si tu ne trouves aucune information tarifaire, réponds "
+        "Si l'information est en double, dedupliquer"
+        "uniquement 'NO_TARIF_INFO'\n\n"
         f"Contenu:\n{all_content}"
     )
     result = select_model(model, prompt)
@@ -461,6 +501,12 @@ selected_aom = st.selectbox(
         f"{next((a[1] for a in aoms if a[0] == x), 'Unknown')} "
         f"({next((a[2] for a in aoms if a[0] == x), 0)} sources)"
     ),
+    key="selected_aom",
+    on_change=lambda: (
+        st.session_state.pop("all_content", None),
+        st.session_state.pop("filtered_contents", None),
+        st.session_state.pop("aggregated_content", None),
+    ),
 )
 
 if selected_aom:
@@ -478,19 +524,11 @@ if selected_aom:
     if "selected_keywords" not in st.session_state:
         st.session_state.selected_keywords = DEFAULT_KEYWORDS.copy()
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        new_keyword = st.text_input(
-            "Ajouter un nouveau mot-clé :",
-            placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
-            help="Le nouveau mot-clé sera ajouté à la liste disponible",
-        )
-    with col2:
-        selected_model = st.selectbox(
-            "Modèle LLM à utiliser :",
-            options=list(LLM_MODELS.keys()),
-            key="selected_llm",
-        )
+    new_keyword = st.text_input(
+        "Ajouter un nouveau mot-clé :",
+        placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
+        help="Le nouveau mot-clé sera ajouté à la liste disponible",
+    )
 
     if new_keyword:
         if new_keyword not in st.session_state.available_keywords:
@@ -511,98 +549,132 @@ if selected_aom:
             " | "
         )
 
-        if st.button("Charger le contenu", key="load_content"):
-            sources_content = {}
-            tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
+        sources_content = {}
+        tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
 
-            for i, source in enumerate(sources):
-                with tabs[i]:
-                    st.write(f"URL: {source}")
-                    content = get_aom_content_by_source(selected_aom, source)
-                    sources_content[source] = content
-                    st.text_area(
-                        "Contenu", value=content, height=300, disabled=True
-                    )
-            # Sauvegarder dans session_state pour les étapes suivantes
-            st.session_state.sources_content = sources_content
+        # Concaténer le contenu de toutes les sources
+        all_content = ""
+        for i, source in enumerate(sources):
+            with tabs[i]:
+                st.write(f"URL: {source}")
+                content = get_aom_content_by_source(selected_aom, source)
+                sources_content[source] = content
+                all_content += content + "\n\n"
 
-    # Step 2: Filtrage du contenu
-    st.header("🔍 Étape 2 : Filtrage du contenu")
-    with st.expander("Filtrer le contenu pertinent"):
-        if st.button("Lancer le filtrage", key="filter_content"):
-            if "sources_content" not in st.session_state:
-                st.error("Veuillez d'abord charger le contenu dans l'étape 1")
-                st.stop()
-
-            # Créer la barre de progression globale
-            progress_bar = st.progress(0)
-
-            # Créer les onglets
-            sources_count = len(st.session_state.sources_content)
-            tabs = st.tabs([f"Source {i+1}" for i in range(sources_count)])
-
-            # Traiter chaque source
-            filtered_contents = {}
-
-            # Itérer sur les sources
-            sources_items = st.session_state.sources_content.items()
-            for i, (source, content) in enumerate(sources_items):
-                with tabs[i]:
-                    st.write(f"URL: {source}")
-
-                    # Appeler la fonction de filtrage
-                    filtered_result = filter_content_by_relevance(
-                        content=content,
-                        keywords=selected_keywords,
-                        model=selected_model,
-                    )
-
-                    # Mettre à jour la barre de progression
-                    progress_bar.progress((i + 1) / sources_count)
-
-                    # Afficher le contenu filtré
-                    if filtered_result["Contenu filtré"].strip():
-                        st.text_area(
-                            "Contenu filtré",
-                            value=filtered_result["Contenu filtré"],
-                            height=300,
-                            disabled=True,
-                            key=f"filtered_content_{i}",
-                        )
-                        filtered_contents[source] = filtered_result[
-                            "Contenu filtré"
-                        ]
-                    else:
-                        msg = (
-                            "Aucun contenu pertinent trouvé dans cette source"
-                        )
-                        st.warning(msg)
-
-            # Sauvegarder les résultats filtrés
-            if filtered_contents:
-                st.session_state.filtered_contents = filtered_contents
-                st.success("Filtrage terminé pour toutes les sources")
-            else:
-                msg = "Aucun contenu pertinent n'a été trouvé dans les sources"
-                st.error(msg)
-
-    # Step 3: Agrégation et déduplication
-    st.header("🔄 Étape 3 : Agrégation et déduplication")
-    with st.expander("Agréger et dédupliquer"):
-        if st.button("Lancer l'agrégation", key="aggregate_content"):
-            if "filtered_contents" in st.session_state:
-                aggregated_content = aggregate_and_deduplicate(
-                    st.session_state.filtered_contents, selected_model
-                )
-                st.session_state.aggregated_content = aggregated_content
+        # Afficher le contenu dans les onglets
+        for i, source in enumerate(sources):
+            with tabs[i]:
                 st.text_area(
-                    "Contenu agrégé",
-                    value=aggregated_content,
+                    "Contenu",
+                    value=sources_content[source],
                     height=300,
                     disabled=True,
                 )
 
-    # Step 4: Calcul du score cosinus
+        # Sauvegarder dans session_state pour les étapes suivantes
+        st.session_state.all_content = all_content
+        nb_tokens = count_tokens(all_content)
+        st.write(f"Nombre de tokens : {nb_tokens}")
+
+    # Step 2: Filtrage du contenu
+    st.header("🔍 Étape 2 : Filtrage du contenu")
+    with st.expander("Filtrer le contenu pertinent"):
+        model_options = ["Filtrage NLP"] + list(LLM_MODELS.keys())
+        selected_model_filter = st.selectbox(
+            "Méthode de filtrage :",
+            options=model_options,
+            key="selected_llm_filter",
+        )
+
+        # Afficher le contenu filtré s'il existe
+        if "filtered_contents" in st.session_state:
+            filtered_content = st.session_state.filtered_contents[
+                "Contenu filtré"
+            ]
+            if selected_model_filter == "Filtrage NLP":
+                nb_tokens = count_tokens(
+                    filtered_content
+                )  # Version générale pour SpaCy
+                title = f"Contenu filtré (SpaCy) - {nb_tokens} tokens"
+            else:
+                nb_tokens = count_tokens(filtered_content)
+                title = f"Contenu filtré - {nb_tokens} tokens"
+            st.text_area(
+                title,
+                value=filtered_content,
+                height=300,
+                disabled=True,
+                key="filtered_content_display",
+            )
+
+        if st.button("Lancer le filtrage", key="filter_content"):
+            # Vérification du contenu une seule fois
+            all_content = st.session_state.get("all_content", {})
+            if not all_content:
+                st.error("Veuillez d'abord charger le contenu dans l'étape 1")
+                st.stop()
+
+            if selected_model_filter == "Filtrage NLP":
+                # Chargement du modèle SpaCy une seule fois
+                with st.spinner("Chargement du modèle SpaCy..."):
+                    nlp = load_spacy_model()
+                    raw_text = extract_markdown_text(all_content)
+                    paragraphs = normalize_text(raw_text, nlp)
+                    paragraphs_filtered, _ = filter_text_with_spacy(
+                        paragraphs, nlp
+                    )
+                    filtered = "\n\n".join(paragraphs_filtered)
+
+                    if filtered:
+                        st.session_state.filtered_contents = {
+                            "Contenu filtré": filtered
+                        }
+                        st.rerun()
+                    else:
+                        st.warning("Aucun contenu pertinent trouvé")
+            else:
+                filtered_result = filter_content_by_relevance(
+                    content=all_content,
+                    keywords=selected_keywords,
+                    model=selected_model_filter,
+                )
+
+                if filtered_result["Contenu filtré"].strip():
+                    st.session_state.filtered_contents = {
+                        "Contenu filtré": filtered_result["Contenu filtré"]
+                    }
+                    st.success("Filtrage terminé")
+                    st.rerun()
+                else:
+                    st.error("Aucun contenu pertinent trouvé dans les sources")
+
+    # Step 3: Deduplication
+    st.header("🔄 Étape 3 : Déduplication")
+    with st.expander("Sélectionner le modèle LLM ="):
+        selected_model_aggregate = st.selectbox(
+            options=list(LLM_MODELS.keys()),
+            key="selected_llm_aggregate",
+        )
+
+        # Afficher le contenu agrégé s'il existe
+        if "aggregated_content" in st.session_state:
+            st.text_area(
+                "Contenu agrégé",
+                value=st.session_state.aggregated_content,
+                height=300,
+                disabled=True,
+            )
+
+        if st.button("Lancer la déduplication", key="dedup_content"):
+            if "filtered_contents" in st.session_state:
+                aggregated_content = deduplicate_content(
+                    st.session_state.filtered_contents,
+                    selected_model_aggregate,
+                )
+                st.session_state.aggregated_content = aggregated_content
+                st.rerun()
+
+    # Step 4: Compute similarity score
     st.header("📊 Étape 4 : Score de similarité")
     with st.expander("Calculer le score"):
         if st.button("Calculer le score", key="compute_score"):
@@ -615,10 +687,17 @@ if selected_aom:
     # Step 5: Structuration JSON
     st.header("🔧 Étape 5 : Structuration JSON")
     with st.expander("Structurer les données"):
+        selected_model_structure = st.selectbox(
+            "Modèle LLM pour la structuration :",
+            options=list(LLM_MODELS.keys()),
+            key="selected_llm_structure",
+        )
+
         if st.button("Structurer en JSON", key="structure_json"):
             if "aggregated_content" in st.session_state:
                 structured_data = structure_content_as_json(
-                    st.session_state.aggregated_content, selected_model
+                    st.session_state.aggregated_content,
+                    selected_model_structure,
                 )
                 st.json(structured_data)
                 # Download button
