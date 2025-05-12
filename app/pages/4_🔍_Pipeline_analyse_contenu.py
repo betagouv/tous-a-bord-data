@@ -8,6 +8,12 @@ from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
 from services.llm_services import call_anthropic, call_ollama, call_scaleway
+from services.nlp_services import (
+    extract_markdown_text,
+    filter_text_with_spacy,
+    load_spacy_model,
+    normalize_text,
+)
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import create_engine, text
@@ -371,15 +377,26 @@ def filter_content_by_relevance(
         return {"Contenu filtré": f"Erreur lors du filtrage : {str(e)}"}
 
 
-def aggregate_and_deduplicate(contents: Dict[str, str], model: str) -> str:
-    """Agrège et déduplique le contenu de plusieurs sources"""
+def deduplicate_content(contents: Dict[str, str], model: str) -> str:
+    """Deduplicate the content of multiple sources"""
     all_content = "\n\n".join(contents.values())
     prompt = (
-        "Agréger et dédupliquer le contenu suivant:\n"
-        "1. Fusionner les informations similaires\n"
-        "2. Éliminer les doublons\n"
-        "3. Garder les informations les plus complètes\n"
-        "4. Conserver la structure tarifaire\n\n"
+        "Extrais toutes les informations tarifaires des transports en "
+        "commun à partir du texte suivant. Garde exactement :\n"
+        "1. Les tarifs standards (billets, carnets, abonnements)\n"
+        "2. Les tarifs réduits et leurs conditions\n"
+        "3. Les tarifs solidaires et leurs conditions d'éligibilité\n"
+        "4. Les zones géographiques concernées\n\n"
+        "IMPORTANT:\n"
+        "- Conserve les montants exacts et les unités (€)\n"
+        "- Garde toutes les conditions d'éligibilité\n"
+        "- Ne fais pas de résumé ou d'interprétation\n"
+        "- Retourne le texte brut avec sa structure\n"
+        "- Si tu trouves des informations tarifaires, retourne-les\n"
+        "- Ne retourne PAS de texte formaté ou de liste\n"
+        "- Si tu ne trouves aucune information tarifaire, réponds "
+        "Si l'information est en double, dedupliquer"
+        "uniquement 'NO_TARIF_INFO'\n\n"
         f"Contenu:\n{all_content}"
     )
     result = select_model(model, prompt)
@@ -461,6 +478,12 @@ selected_aom = st.selectbox(
         f"{next((a[1] for a in aoms if a[0] == x), 'Unknown')} "
         f"({next((a[2] for a in aoms if a[0] == x), 0)} sources)"
     ),
+    key="selected_aom",
+    on_change=lambda: (
+        st.session_state.pop("all_content", None),
+        st.session_state.pop("filtered_contents", None),
+        st.session_state.pop("aggregated_content", None),
+    ),
 )
 
 if selected_aom:
@@ -503,98 +526,128 @@ if selected_aom:
             " | "
         )
 
-        # Chargement automatique du contenu des sources
         sources_content = {}
         tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
+
+        # Concaténer le contenu de toutes les sources
+        all_content = ""
         for i, source in enumerate(sources):
             with tabs[i]:
                 st.write(f"URL: {source}")
                 content = get_aom_content_by_source(selected_aom, source)
                 sources_content[source] = content
+                all_content += content + "\n\n"
+
+        # Afficher le contenu dans les onglets
+        for i, source in enumerate(sources):
+            with tabs[i]:
                 st.text_area(
-                    "Contenu", value=content, height=300, disabled=True
+                    "Contenu",
+                    value=sources_content[source],
+                    height=300,
+                    disabled=True,
                 )
+
         # Sauvegarder dans session_state pour les étapes suivantes
-        st.session_state.sources_content = sources_content
+        st.session_state.all_content = all_content
+        st.write(f"Nombre de caractères : {len(all_content)}")
 
     # Step 2: Filtrage du contenu
     st.header("🔍 Étape 2 : Filtrage du contenu")
     with st.expander("Filtrer le contenu pertinent"):
+        model_options = ["Filtrage NLP"] + list(LLM_MODELS.keys())
         selected_model_filter = st.selectbox(
-            "Modèle LLM pour le filtrage :",
-            options=list(LLM_MODELS.keys()),
+            "Méthode de filtrage :",
+            options=model_options,
             key="selected_llm_filter",
         )
 
+        # Afficher le contenu filtré s'il existe
+        if "filtered_contents" in st.session_state:
+            filtered_content = st.session_state.filtered_contents[
+                "Contenu filtré"
+            ]
+            if selected_model_filter == "Filtrage NLP":
+                title = f"Contenu filtré (SpaCy) - {len(filtered_content)}"
+            else:
+                title = "Contenu filtré"
+            st.text_area(
+                title,
+                value=filtered_content,
+                height=300,
+                disabled=True,
+                key="filtered_content_display",
+            )
+
         if st.button("Lancer le filtrage", key="filter_content"):
-            if "sources_content" not in st.session_state:
+            # Vérification du contenu une seule fois
+            all_content = st.session_state.get("all_content", {})
+            if not all_content:
                 st.error("Veuillez d'abord charger le contenu dans l'étape 1")
                 st.stop()
 
-            progress_bar = st.progress(0)
-            sources_count = len(st.session_state.sources_content)
-            tabs = st.tabs([f"Source {i+1}" for i in range(sources_count)])
-            filtered_contents = {}
-
-            sources_items = st.session_state.sources_content.items()
-            for i, (source, content) in enumerate(sources_items):
-                with tabs[i]:
-                    st.write(f"URL: {source}")
-                    filtered_result = filter_content_by_relevance(
-                        content=content,
-                        keywords=selected_keywords,
-                        model=selected_model_filter,
+            if selected_model_filter == "Filtrage NLP":
+                # Chargement du modèle SpaCy une seule fois
+                with st.spinner("Chargement du modèle SpaCy..."):
+                    nlp = load_spacy_model()
+                    raw_text = extract_markdown_text(all_content)
+                    paragraphs = normalize_text(raw_text, nlp)
+                    paragraphs_filtered, _ = filter_text_with_spacy(
+                        paragraphs, nlp
                     )
-                    progress_bar.progress((i + 1) / sources_count)
+                    filtered = "\n\n".join(paragraphs_filtered)
 
-                    if filtered_result["Contenu filtré"].strip():
-                        st.text_area(
-                            "Contenu filtré",
-                            value=filtered_result["Contenu filtré"],
-                            height=300,
-                            disabled=True,
-                            key=f"filtered_content_{i}",
-                        )
-                        filtered_contents[source] = filtered_result[
-                            "Contenu filtré"
-                        ]
+                    if filtered:
+                        st.session_state.filtered_contents = {
+                            "Contenu filtré": filtered
+                        }
+                        st.rerun()
                     else:
-                        st.warning(
-                            "Aucun contenu pertinent trouvé dans cette source"
-                        )
-
-            if filtered_contents:
-                st.session_state.filtered_contents = filtered_contents
-                st.success("Filtrage terminé pour toutes les sources")
+                        st.warning("Aucun contenu pertinent trouvé")
             else:
-                st.error(
-                    "Aucun contenu pertinent n'a été trouvé dans les sources"
+                filtered_result = filter_content_by_relevance(
+                    content=all_content,
+                    keywords=selected_keywords,
+                    model=selected_model_filter,
                 )
 
-    # Step 3: Agrégation et déduplication
-    st.header("🔄 Étape 3 : Agrégation et déduplication")
-    with st.expander("Agréger et dédupliquer"):
+                if filtered_result["Contenu filtré"].strip():
+                    st.session_state.filtered_contents = {
+                        "Contenu filtré": filtered_result["Contenu filtré"]
+                    }
+                    st.success("Filtrage terminé")
+                    st.rerun()
+                else:
+                    st.error("Aucun contenu pertinent trouvé dans les sources")
+
+    # Step 3: Deduplication
+    st.header("🔄 Étape 3 : Déduplication")
+    with st.expander("Sélectionner le modèle LLM"):
         selected_model_aggregate = st.selectbox(
             "Modèle LLM pour l'agrégation :",
             options=list(LLM_MODELS.keys()),
             key="selected_llm_aggregate",
         )
 
-        if st.button("Lancer l'agrégation", key="aggregate_content"):
+        # Afficher le contenu agrégé s'il existe
+        if "aggregated_content" in st.session_state:
+            st.text_area(
+                "Contenu agrégé",
+                value=st.session_state.aggregated_content,
+                height=300,
+                disabled=True,
+            )
+
+        if st.button("Lancer la déduplication", key="dedup_content"):
             if "filtered_contents" in st.session_state:
-                aggregated_content = aggregate_and_deduplicate(
+                aggregated_content = deduplicate_content(
                     st.session_state.filtered_contents,
                     selected_model_aggregate,
                 )
                 st.session_state.aggregated_content = aggregated_content
-                st.text_area(
-                    "Contenu agrégé",
-                    value=aggregated_content,
-                    height=300,
-                    disabled=True,
-                )
+                st.rerun()
 
-    # Step 4: Calcul du score cosinus
+    # Step 4: Compute similarity score
     st.header("📊 Étape 4 : Score de similarité")
     with st.expander("Calculer le score"):
         if st.button("Calculer le score", key="compute_score"):
