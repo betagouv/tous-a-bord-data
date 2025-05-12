@@ -33,3 +33,8 @@ ollama
 openai
 spacy
 markdown
+llama_index
+llama-index-core
+llama-index-llms-anthropic
+llama-index-llms-ollama
+tiktoken

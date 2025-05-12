@@ -48,6 +48,9 @@ RUN pip install --no-cache-dir selenium
 RUN pip install --no-cache-dir spacy
 RUN python -m spacy download fr_core_news_lg
 
+# Installation de LlamaIndex et ses dépendances
+RUN pip install --no-cache-dir llama-index llama-index-core llama-index-llms-anthropic llama-index-llms-ollama
+
 COPY . .
 
 EXPOSE 8501

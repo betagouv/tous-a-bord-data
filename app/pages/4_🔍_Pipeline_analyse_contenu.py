@@ -4,9 +4,12 @@ from typing import Dict, List
 
 import pandas as pd
 import streamlit as st
+import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
+
+# Nouveaux imports
 from services.llm_services import call_anthropic, call_ollama, call_scaleway
 from services.nlp_services import (
     extract_markdown_text,
@@ -34,10 +37,6 @@ client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 LLM_MODELS = {
     "Llama 3 (Ollama)": {
         "name": "llama3:8b",
-        "max_tokens": 128000,
-    },
-    "Llama 3.1 8B Instruct FP16 (Ollama)": {
-        "name": "llama3.1:8b-instruct-fp16",
         "max_tokens": 128000,
     },
     "Llama 3.3 70B (Scaleway)": {
@@ -263,16 +262,39 @@ def get_aom_content_by_source(siren: str, source_url: str) -> str:
     return "\n\n".join(content_parts)
 
 
+def get_tokenizer_for_model():
+    """Retourne le bon tokenizer en fonction du modèle"""
+    return tiktoken.get_encoding("cl100k_base").encode
+
+
+def count_tokens(text: str) -> int:
+    """Compte le nombre de tokens dans un texte (version générale)"""
+    # Utiliser cl100k comme tokenizer général
+    return len(tiktoken.encoding_for_model("gpt-3.5-turbo").encode(text))
+
+
 def split_content_in_chunks(content: str, model: str) -> List[str]:
-    """Découpe le contenu en chunks de taille max_tokens (en caractères)"""
-    chunk_size = LLM_MODELS[model]["max_tokens"]
-    # On découpe le texte brut, peu importe les pages
+    """Découpe le contenu en chunks de taille max_tokens"""
+    max_tokens = LLM_MODELS[model]["max_tokens"]
+    tokenizer = get_tokenizer_for_model()
+
+    # Utiliser le même tokenizer pour l'encodage et le décodage
+    try:
+        decoder = tiktoken.get_encoding("cl100k_base").decode
+    except KeyError:
+        st.error("Erreur de décodage, utilisation de cl100k_base")
+        decoder = tiktoken.get_encoding("cl100k_base").decode
+
+    # Encoder le texte
+    tokens = tokenizer(content)
+
+    # Découper en chunks
     chunks = []
-    start = 0
-    while start < len(content):
-        end = start + chunk_size
-        chunks.append(content[start:end])
-        start = end
+    for i in range(0, len(tokens), max_tokens):
+        chunk_tokens = tokens[i : i + max_tokens]
+        chunk_text = decoder(chunk_tokens)
+        chunks.append(chunk_text)
+
     return chunks
 
 
@@ -283,10 +305,8 @@ def filter_content_by_relevance(
 ) -> Dict[str, str]:
     """Filtre le contenu pour ne garder que les parties pertinentes"""
     try:
-        msg = (
-            "Début du filtrage - "
-            f"Taille du contenu: {len(content)} caractères"
-        )
+        nb_tokens = count_tokens(content)
+        msg = "Début du filtrage - " f"Nombre de tokens: {nb_tokens}"
         st.write(msg)
         chunks = split_content_in_chunks(content, model)
         st.write(f"Nombre de chunks: {len(chunks)}")
@@ -298,9 +318,10 @@ def filter_content_by_relevance(
             st.write(f"Traitement du chunk {i+1}/{len(chunks)}")
 
             # Affichage du chunk pour debug
+            chunk_tokens = count_tokens(chunk)
             st.info(
                 f"--- Chunk {i+1} ---\n"
-                f"Taille : {len(chunk)} caractères\n"
+                f"Nombre de tokens : {chunk_tokens}\n"
                 f"Contenu du chunk :\n{chunk[:2000]}"
             )
 
@@ -342,9 +363,10 @@ def filter_content_by_relevance(
                             disabled=True,
                         )
 
+                    chunk_tokens = count_tokens(current_chunk_text)
                     msg = (
                         f"✓ Chunk {i+1} filtré - "
-                        f"Taille: {len(current_chunk_text)} caractères"
+                        f"Nombre de tokens: {chunk_tokens}"
                     )
                     st.write(msg)
                 else:
@@ -361,9 +383,10 @@ def filter_content_by_relevance(
                 continue
 
         if filtered_content:
+            nb_tokens = count_tokens(filtered_content)
             msg = (
                 f"Filtrage terminé - "
-                f"Taille du résultat: {len(filtered_content)} caractères"
+                f"Nombre de tokens du résultat: {nb_tokens}"
             )
             st.write(msg)
             return {"Contenu filtré": filtered_content}
@@ -550,7 +573,8 @@ if selected_aom:
 
         # Sauvegarder dans session_state pour les étapes suivantes
         st.session_state.all_content = all_content
-        st.write(f"Nombre de caractères : {len(all_content)}")
+        nb_tokens = count_tokens(all_content)
+        st.write(f"Nombre de tokens : {nb_tokens}")
 
     # Step 2: Filtrage du contenu
     st.header("🔍 Étape 2 : Filtrage du contenu")
@@ -568,9 +592,13 @@ if selected_aom:
                 "Contenu filtré"
             ]
             if selected_model_filter == "Filtrage NLP":
-                title = f"Contenu filtré (SpaCy) - {len(filtered_content)}"
+                nb_tokens = count_tokens(
+                    filtered_content
+                )  # Version générale pour SpaCy
+                title = f"Contenu filtré (SpaCy) - {nb_tokens} tokens"
             else:
-                title = "Contenu filtré"
+                nb_tokens = count_tokens(filtered_content)
+                title = f"Contenu filtré - {nb_tokens} tokens"
             st.text_area(
                 title,
                 value=filtered_content,
@@ -622,9 +650,8 @@ if selected_aom:
 
     # Step 3: Deduplication
     st.header("🔄 Étape 3 : Déduplication")
-    with st.expander("Sélectionner le modèle LLM"):
+    with st.expander("Sélectionner le modèle LLM ="):
         selected_model_aggregate = st.selectbox(
-            "Modèle LLM pour l'agrégation :",
             options=list(LLM_MODELS.keys()),
             key="selected_llm_aggregate",
         )
