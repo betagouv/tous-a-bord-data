@@ -650,8 +650,9 @@ if selected_aom:
 
     # Step 3: Deduplication
     st.header("🔄 Étape 3 : Déduplication")
-    with st.expander("Sélectionner le modèle LLM ="):
+    with st.expander("Sélectionner le modèle LLM :"):
         selected_model_aggregate = st.selectbox(
+            "Modèle LLM pour la déduplication :",
             options=list(LLM_MODELS.keys()),
             key="selected_llm_aggregate",
         )
