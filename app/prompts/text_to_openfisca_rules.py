@@ -1,61 +1,29 @@
 def text_to_openfisca_rules(text):
     return f"""
-Tu es un expert en modélisation OpenFisca. À partir des phrases
-suivantes extraites d'un site web de transport en commun,
-génère une règle Python pour OpenFisca qui calcule le montant
-de l'abonnement ou du ticket en fonction des conditions d'éligibilité.
-
-Exemple de structure attendue :
-```python
-class artois_mobilites_tarif_transport(Variable):
-    value_type = float
-    entity = Menage
-    definition_period = MONTH
-    label = "Tarif de transport Artois Mobilités"
-
-    def formula(menage, period):
-        age = menage.personne_de_reference('age', period)
-        demandeur_emploi = menage.personne_de_reference(
-            'demandeur_emploi',
-            period
-        )
-        beneficiaire_cmi = menage.personne_de_reference(
-            'beneficiaire_cmi',
-            period
-        )
-        beneficiaire_asf = menage.personne_de_reference(
-            'beneficiaire_asf',
-            period
-        )
-
-        # Tarif standard
-        tarif_standard = select(
-            [age < 26, age >= 65],
-            [5, 5],
-            default=14
-        )
-
-        # Tarif solidaire
-        tarif_solidaire = 5
-        eligibilite_solidaire = (
-            demandeur_emploi
-            + beneficiaire_cmi
-            + beneficiaire_asf
-        )
-
-        return select(
-            [eligibilite_solidaire],
-            [tarif_solidaire],
-            default=tarif_standard
-        )
-```
+Tu es un expert en modélisation OpenFisca. À partir paramètres yaml suivants,
+et en t'appuyant sur la librairie openfisca-france-local,
+génère les règles de calcul de tarification et tarification sociale des
+transports pour cet AOM.
 
 IMPORTANT :
-- Utilise les variables OpenFisca standard (age, demandeur_emploi, etc.).
-- Respecte la logique des barèmes (standard, réduit, solidaire).
-- Inclus toutes les conditions d'éligibilité mentionnées.
-- Ne fais pas d'interprétation ou de résumé.
+- Utilise les variables OpenFisca standard
+(age, demandeur_emploi, aah, css, rsa etc.) comme par exemple dans
+@tarification_solidaire_transport.py
+- Respecte la logique des tarifs (tickets, abonnements, scolaires,
+zones) comme éventuellement spécifié dans les parameters
+@tarifs_tickets.yaml @tarifs_abonnements.yaml, @tarifs_scolaires.yaml,
+@zones.yaml
+- Inclus toutes les conditions d'éligibilité éventuellement
+mentionnées dans les parameters comme dans @conditions_eligibilite.yaml
+- Inclus les éventuelles conditions specifiques éventuellement spécifiées dans
+les parameters @conditions_specifiques.yaml
+- Les réductions sont appliquées de manière non cumulable (on prend la plus
+avantageuse) comme c'est souvent le cas dans les politiques tarifaires des
+transports.
+TRES IMPORTANT: surtout ne code pas les seuils en dur dans le code,
+utiliser tous les barèmes spécifiés comme dans @baremes.yaml,
+tu peux en ajouter si besoin
 
-Phrases extraites :
+Paramètres yaml:
 {text}
 """

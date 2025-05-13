@@ -1,8 +1,9 @@
 def text_to_openfisca_unit_tests(text):
     return f"""
-Tu es un expert en modélisation OpenFisca. À partir des phrases
-suivantes extraites d'un site web de transport en commun,
-génère un test YAML pour OpenFisca qui valide le calcul du tarif de transport.
+Tu es un expert en modélisation OpenFisca. À partir des règles de calcul
+Open Fisca suivantes, et des paramètres yaml suivants,
+génère un test YAML pour OpenFisca qui valide le calcul
+et test l'ensemble des cas de figure des usagers.
 
 Exemple de structure attendue :
 ```yaml
