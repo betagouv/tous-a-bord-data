@@ -397,33 +397,25 @@ if selected_aom:
         sources = next((a[3] for a in aoms if a[0] == selected_aom), "").split(
             " | "
         )
-
+        all_content = ""
+        for i, source in enumerate(sources):
+            content = get_aom_content_by_source(selected_aom, source)
+            all_content += content + "\n\n"
+        nb_tokens = count_tokens(all_content)
+        st.write(f"Nombre de tokens : {nb_tokens}")
         sources_content = {}
         tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
 
         # Concaténer le contenu de toutes les sources
-        all_content = ""
         for i, source in enumerate(sources):
             with tabs[i]:
                 st.write(f"URL: {source}")
                 content = get_aom_content_by_source(selected_aom, source)
                 sources_content[source] = content
-                all_content += content + "\n\n"
-
-        # Afficher le contenu dans les onglets
-        for i, source in enumerate(sources):
-            with tabs[i]:
-                st.text_area(
-                    "Contenu",
-                    value=sources_content[source],
-                    height=300,
-                    disabled=True,
-                )
+                st.markdown(content)
 
         # Sauvegarder dans session_state pour les étapes suivantes
         st.session_state.all_content = all_content
-        nb_tokens = count_tokens(all_content)
-        st.write(f"Nombre de tokens : {nb_tokens}")
 
     # Step 2: Filtrage du contenu
     st.header("🔍 Étape 2 : Filtrage du contenu")
