@@ -8,7 +8,12 @@ from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
 
 # Nouveaux imports
-from services.llm_services import call_anthropic, call_ollama, call_scaleway
+from services.llm_services import (
+    MAX_TOKEN_OUTPUT,
+    call_anthropic,
+    call_ollama,
+    call_scaleway,
+)
 from services.nlp_services import (
     extract_markdown_text,
     filter_text_with_spacy,
@@ -27,7 +32,6 @@ engine = create_engine(get_postgres_cs())
 
 # After the imports
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
 
 # Constantes pour les modèles LLM disponibles
 LLM_MODELS = {
@@ -92,44 +96,6 @@ def select_model(model_name: str, prompt: str) -> str:
     return current_chunk_text
 
 
-def get_aom_content(siren):
-    """Concaténer tout le contenu d'un AOM pour toutes ses URLs sources"""
-    with engine.connect() as conn:
-        # D'abord récupérer toutes les URLs sources pour cet AOM
-        urls = conn.execute(
-            text(
-                """
-                SELECT DISTINCT url_source
-                FROM tarification_raw
-                WHERE n_siren_aom = :siren
-            """
-            ),
-            {"siren": siren},
-        ).fetchall()
-        full_content = []
-        for url in urls:
-            # Pour chaque URL source, récupérer toutes les pages
-            pages = conn.execute(
-                text(
-                    """
-                    SELECT url_page, contenu_scrape
-                    FROM tarification_raw
-                    WHERE n_siren_aom = :siren AND url_source = :url
-                    ORDER BY id
-                """
-                ),
-                {"siren": siren, "url": url[0]},
-            ).fetchall()
-            # Ajouter un séparateur pour cette source
-            full_content.append(f"\n\n=== Source: {url[0]} ===\n")
-            # Ajouter le contenu de chaque page
-            for page in pages:
-                full_content.append(
-                    f"--- Page: {page.url_page} ---\n{page.contenu_scrape}"
-                )
-    return "\n\n".join(full_content)
-
-
 def get_aom_content_by_source(siren: str, source_url: str) -> str:
     """Récupère le contenu d'une source spécifique pour un AOM"""
     with engine.connect() as conn:
@@ -166,7 +132,7 @@ def count_tokens(text: str) -> int:
 
 def split_content_in_chunks(content: str, model: str) -> List[str]:
     """Découpe le contenu en chunks de taille max_tokens"""
-    max_tokens = LLM_MODELS[model]["max_tokens"]
+    max_tokens = LLM_MODELS[model]["max_tokens"] - MAX_TOKEN_OUTPUT * 2
     tokenizer = get_tokenizer_for_model()
 
     # Utiliser le même tokenizer pour l'encodage et le décodage
@@ -294,6 +260,8 @@ def filter_content_by_relevance(
 def extract_content(contents: Dict[str, str], model: str) -> str:
     """Extrais toutes les informations tarifaires des transports"""
     all_content = "\n\n".join(contents.values())
+    max_tokens = LLM_MODELS[model]["max_tokens"]
+    nb_tokens = count_tokens(all_content)
     prompt = (
         "Extrais toutes les informations tarifaires des transports en "
         "commun à partir du texte suivant. Garde exactement :\n"
@@ -308,13 +276,45 @@ def extract_content(contents: Dict[str, str], model: str) -> str:
         "- Retourne le texte brut avec sa structure\n"
         "- Si tu trouves des informations tarifaires, retourne-les\n"
         "- Ne retourne PAS de texte formaté ou de liste\n"
-        "- Si l'information est en double, dedupliquer"
+        "- Si l'information est en double, dedupliquer\n"
         "- Si tu ne trouves aucune information tarifaire, réponds "
         "uniquement 'NO_TARIF_INFO'\n\n"
-        f"Contenu:\n{all_content}"
     )
-    result = select_model(model, prompt)
-    return result
+    # Créer un conteneur pour le résultat
+    result_container = st.empty()
+    if nb_tokens > max_tokens:
+        chunks = split_content_in_chunks(all_content, model)
+        st.write(f"Nombre de chunks : {len(chunks)}")
+        extracted_parts = []
+        for i, chunk in enumerate(chunks):
+            st.write(f"Traitement du chunk {i+1}/{len(chunks)}")
+            chunk_result = select_model(model, prompt + f"Contenu:\n{chunk}")
+            if "NO_TARIF_INFO" not in chunk_result:
+                extracted_parts.append(chunk_result)
+                # Afficher le résultat partiel
+                result_container.text_area(
+                    "Résultat de l'extraction",
+                    value="\n\n".join(extracted_parts),
+                    height=300,
+                    disabled=True,
+                )
+        # Fusionner les résultats des chunks
+        final_result = "\n\n".join(extracted_parts)
+        # Afficher le résultat final
+        result_container.text_area(
+            "Résultat final de l'extraction",
+            value=final_result,
+            height=300,
+            disabled=True,
+        )
+        return final_result
+    else:
+        result = select_model(model, prompt + f"Contenu:\n{all_content}")
+        # Afficher le résultat
+        result_container.text_area(
+            "Résultat de l'extraction", value=result, height=300, disabled=True
+        )
+        return result
 
 
 # Interface Streamlit
