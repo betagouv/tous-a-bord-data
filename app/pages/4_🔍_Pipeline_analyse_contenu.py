@@ -1,8 +1,6 @@
-import json
 import os
 from typing import Dict, List
 
-import pandas as pd
 import streamlit as st
 import tiktoken
 from anthropic import Anthropic
@@ -17,8 +15,6 @@ from services.nlp_services import (
     load_spacy_model,
     normalize_text,
 )
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy import create_engine, text
 from utils.db_utils import get_postgres_cs, load_urls_data_from_db
 
@@ -96,11 +92,6 @@ def select_model(model_name: str, prompt: str) -> str:
     return current_chunk_text
 
 
-def format_score(score: float) -> str:
-    """Formate un score entre 0 et 1 en pourcentage limité à 100%"""
-    return f"{min(score, 1.0):.2%}"
-
-
 def get_aom_content(siren):
     """Concaténer tout le contenu d'un AOM pour toutes ses URLs sources"""
     with engine.connect() as conn:
@@ -137,106 +128,6 @@ def get_aom_content(siren):
                     f"--- Page: {page.url_page} ---\n{page.contenu_scrape}"
                 )
     return "\n\n".join(full_content)
-
-
-def extract_json_from_response(text):
-    """Extrait le JSON de la réponse de Claude"""
-    try:
-        # Chercher le premier { et le dernier }
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start >= 0 and end > start:
-            json_str = text[start:end]
-            return json.loads(json_str)
-    except Exception as e:
-        st.error(f"Erreur d'extraction JSON : {str(e)}")
-    return None
-
-
-def analyze_content_with_claude(content):
-    try:
-        prompt = (
-            "Analyser le contenu suivant en vous concentrant sur"
-            "la tarification des transports en commun réguliers"
-            "(bus, train, métro).\n"
-            "IMPORTANT: Ne pas prendre en compte les services de transport"
-            "à la demande (type PAM) sauf s'il n'y a pas d'autre information"
-            "tarifaire.\n\n"
-            "Critères d'analyse :\n"
-            "1. Présence de tarifs standards pour les transports en commun\n"
-            "2. Présence de tarifs réduits (jeunes, seniors, etc.)\n"
-            "3. Présence de tarification solidaire (basée sur les revenus)\n"
-            "4. Pertinence des sources (privilégier iledefrance-mobilites.fr)"
-        )
-
-        message = client.messages.create(
-            model="claude-3-5-sonnet-latest",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n{content}",
-                }
-            ],
-        )
-
-        response_text = message.content[0].text
-        result = extract_json_from_response(response_text)
-
-        if not result:
-            st.error("Impossible d'extraire le JSON de la réponse")
-            st.text("Réponse brute de Claude :")
-            st.text(response_text)
-            return None
-
-        return result
-
-    except Exception as e:
-        st.error(f"Erreur lors de l'appel à Claude : {str(e)}")
-        return None
-
-
-def extract_tarif_info(content: str) -> List[Dict]:
-    """Extrait les informations tarifaires structurées du contenu"""
-    try:
-        message = client.messages.create(
-            model="claude-3-5-sonnet-latest",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""Extraire toutes les informations tarifaires
-                du contenu suivant.
-                Pour chaque tarif trouvé, structurer l'information dans une
-                liste de dictionnaires avec ce format exact :
-                {{
-                    "règle": str,  # condition d'éligibilité
-                    (ex: "moins de 11 ans", "AME", etc.)
-                    "tarif": str,  # montant en euros
-                    (format string avec virgule)
-                    "unite": str,  # "an", "mois", "semaine"
-                    "groupe": str,  # généralement "1"
-                    "zone": str,  # zones concernées
-                    (ex: "1 à 5", "2 à 3", etc.)
-                    "reduction": str  # pourcentage de réduction
-                    ("-50%", "-75%", "-100%", "")
-                }}
-
-                IMPORTANT:
-                - Les montants doivent être en format string avec virgule
-                (ex: "24,40")
-                - Garder les règles exactes trouvées dans le texte
-                - Inclure les zones géographiques si mentionnées
-                - Indiquer les réductions en pourcentage avec le signe -
-                - Laisser vide ("") si une information n'est pas disponible
-                Contenu à analyser:
-                {content}""",
-                }
-            ],
-        )
-
-        return json.loads(message.content[0].text)
-    except Exception as e:
-        st.error(f"Erreur d'extraction des tarifs : {str(e)}")
-        return None
 
 
 def get_aom_content_by_source(siren: str, source_url: str) -> str:
@@ -400,8 +291,8 @@ def filter_content_by_relevance(
         return {"Contenu filtré": f"Erreur lors du filtrage : {str(e)}"}
 
 
-def deduplicate_content(contents: Dict[str, str], model: str) -> str:
-    """Deduplicate the content of multiple sources"""
+def extract_content(contents: Dict[str, str], model: str) -> str:
+    """Extrais toutes les informations tarifaires des transports"""
     all_content = "\n\n".join(contents.values())
     prompt = (
         "Extrais toutes les informations tarifaires des transports en "
@@ -417,55 +308,13 @@ def deduplicate_content(contents: Dict[str, str], model: str) -> str:
         "- Retourne le texte brut avec sa structure\n"
         "- Si tu trouves des informations tarifaires, retourne-les\n"
         "- Ne retourne PAS de texte formaté ou de liste\n"
+        "- Si l'information est en double, dedupliquer"
         "- Si tu ne trouves aucune information tarifaire, réponds "
-        "Si l'information est en double, dedupliquer"
         "uniquement 'NO_TARIF_INFO'\n\n"
         f"Contenu:\n{all_content}"
     )
     result = select_model(model, prompt)
     return result
-
-
-def compute_cosine_similarity(content: str, keywords: List[str]) -> float:
-    """Calcule la similarité cosinus entre le contenu et les mots-clés"""
-    vectorizer = TfidfVectorizer(lowercase=True, strip_accents="unicode")
-    # Préparer les textes
-    texts = [content, " ".join(keywords)]
-    tfidf_matrix = vectorizer.fit_transform(texts)
-    # Calculer la similarité
-    similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-    return similarity
-
-
-def structure_content_as_json(content: str, model: str) -> List[Dict]:
-    """Structure le contenu au format JSON spécifié"""
-    try:
-        message = client.messages.create(
-            model=LLM_MODELS[model]["name"],
-            max_tokens=8000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""Extraire et structurer les informations
-                tarifaires du contenu suivant en JSON avec ce format exact:
-                [{{
-                    "règle": str,  # condition d'éligibilité
-                    "tarif": str,  # montant avec virgule (ex: "24,40")
-                    "unite": str,  # "an", "mois", "semaine"
-                    "groupe": str,  # généralement "1"
-                    "zone": str,  # zones (ex: "1 à 5")
-                    "reduction": str  # "-50%", "-75%", "-100%", ""
-                }}]
-
-                Contenu:
-                {content}""",
-                }
-            ],
-        )
-        return json.loads(message.content[0].text)
-    except Exception as e:
-        st.error(f"Erreur de structuration : {str(e)}")
-        return []
 
 
 # Interface Streamlit
@@ -505,7 +354,7 @@ selected_aom = st.selectbox(
     on_change=lambda: (
         st.session_state.pop("all_content", None),
         st.session_state.pop("filtered_contents", None),
-        st.session_state.pop("aggregated_content", None),
+        st.session_state.pop("extracted_content", None),
     ),
 )
 
@@ -537,7 +386,7 @@ if selected_aom:
             st.rerun()
 
     selected_keywords = st.multiselect(
-        "Mots-clés pour l'analyse :",
+        "Mots-clés :",
         options=st.session_state.available_keywords,
         default=st.session_state.selected_keywords,
     )
@@ -649,130 +498,38 @@ if selected_aom:
                     st.error("Aucun contenu pertinent trouvé dans les sources")
 
     # Step 3: Deduplication
-    st.header("🔄 Étape 3 : Déduplication")
+    st.header("🔄 Étape 3 : Extraction des informations tarifaires")
     with st.expander("Sélectionner le modèle LLM :"):
-        selected_model_aggregate = st.selectbox(
-            "Modèle LLM pour la déduplication :",
+        selected_model_extractor = st.selectbox(
+            "Modèle LLM pour l'extraction :",
             options=list(LLM_MODELS.keys()),
-            key="selected_llm_aggregate",
+            key="selected_llm_extractor",
         )
 
-        # Afficher le contenu agrégé s'il existe
-        if "aggregated_content" in st.session_state:
+        # Afficher le contenu extrait s'il existe
+        if "extracted_content" in st.session_state:
             st.text_area(
-                "Contenu agrégé",
-                value=st.session_state.aggregated_content,
+                "Contenu extrait",
+                value=st.session_state.extracted_content,
                 height=300,
                 disabled=True,
             )
 
-        if st.button("Lancer la déduplication", key="dedup_content"):
+        if st.button("Lancer l'extraction", key="dedup_content"):
             if "filtered_contents" in st.session_state:
-                aggregated_content = deduplicate_content(
+                extracted_content = extract_content(
                     st.session_state.filtered_contents,
-                    selected_model_aggregate,
+                    selected_model_extractor,
                 )
-                st.session_state.aggregated_content = aggregated_content
+                st.session_state.extracted_content = extracted_content
                 st.rerun()
 
-    # Step 4: Compute similarity score
-    st.header("📊 Étape 4 : Score de similarité")
-    with st.expander("Calculer le score"):
-        if st.button("Calculer le score", key="compute_score"):
-            if "aggregated_content" in st.session_state:
-                score = compute_cosine_similarity(
-                    st.session_state.aggregated_content, selected_keywords
-                )
-                st.metric("Score de similarité", f"{score:.2%}")
-
-    # Step 5: Structuration JSON
-    st.header("🔧 Étape 5 : Structuration JSON")
-    with st.expander("Structurer les données"):
-        selected_model_structure = st.selectbox(
-            "Modèle LLM pour la structuration :",
-            options=list(LLM_MODELS.keys()),
-            key="selected_llm_structure",
-        )
-
-        if st.button("Structurer en JSON", key="structure_json"):
-            if "aggregated_content" in st.session_state:
-                structured_data = structure_content_as_json(
-                    st.session_state.aggregated_content,
-                    selected_model_structure,
-                )
-                st.json(structured_data)
-                # Download button
-                st.download_button(
-                    "💾 Download (JSON)",
-                    data=json.dumps(
-                        structured_data, ensure_ascii=False, indent=2
-                    ),
-                    file_name=f"tarifs_{selected_aom}.json",
-                    mime="application/json",
-                )
-
-st.subheader("Analyse de la pertinence des contenus")
-
-if st.button("Analyser tous les AOMs"):
-    scores = {}
-    progress_bar = st.progress(0)
-
-    for idx, aom in enumerate(aoms):
-        siren = aom[0]
-        with st.spinner(f"Analyse de l'AOM {aom[1]} ({siren})..."):
-            content = get_aom_content(siren)
-            analysis = analyze_content_with_claude(content)
-
-            if analysis:
-                sources_pertinentes = analysis.get("sources_pertinentes", [])
-                scores[siren] = {
-                    "score": analysis.get("score_global", 0),
-                    "best_page": {
-                        "url": sources_pertinentes[0]
-                        if sources_pertinentes
-                        else None,
-                        "analysis": {
-                            "keywords_found": [],
-                            "tarifs_identifies": [],
-                        },
-                    },
-                }
-            else:
-                scores[siren] = {
-                    "score": 0,
-                    "best_page": {
-                        "url": None,
-                        "analysis": {
-                            "keywords_found": [],
-                            "tarifs_identifies": [],
-                        },
-                    },
-                }
-
-            # Update the progress bar
-            progress_bar.progress((idx + 1) / len(aoms))
-
-    # Display the score dashboard
-    score_df = pd.DataFrame(
-        [
-            {
-                "SIREN": siren,
-                "Nom AOM": aom_names.get(siren, "Inconnu"),
-                "Score": data["score"],
-                "URL pertinente": data["best_page"]["url"],
-                "Mots-clés trouvés": ", ".join(
-                    data["best_page"]["analysis"]["keywords_found"]
-                )
-                if data["best_page"]
-                else None,
-                "Tarifs identifiés": len(
-                    data["best_page"]["analysis"]["tarifs_identifies"]
-                )
-                if data["best_page"]
-                else 0,
-            }
-            for siren, data in scores.items()
-        ]
-    )
-
-    st.dataframe(score_df)
+    # Step 4: Format in yaml
+    st.header("📊 Étape 4 : Format in yaml")
+    with st.expander("Format in yaml"):
+        if st.button("Format in yaml", key="format_in_yaml"):
+            if "extracted_content" in st.session_state:
+                # yaml_content = format_in_yaml(
+                #     st.session_state.extracted_content, selected_keywords
+                # )
+                print("not implemented")
