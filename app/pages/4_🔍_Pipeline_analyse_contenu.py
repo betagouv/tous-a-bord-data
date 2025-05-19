@@ -1,13 +1,20 @@
+import asyncio
 import os
 import re
+from datetime import datetime, timedelta
 from typing import Dict, List
+from urllib.parse import urlparse
 
+import nest_asyncio
 import streamlit as st
 import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
 from prompts.text_to_yaml_parameters import text_to_yaml_parameters
+
+# flake8: noqa: E402
+nest_asyncio.apply()
 
 # Nouveaux imports
 from services.llm_services import (
@@ -23,9 +30,11 @@ from services.nlp_services import (
     normalize_text,
 )
 from sqlalchemy import create_engine, text
+from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs, load_urls_data_from_db
 
 load_dotenv()
+nest_asyncio.apply()
 
 st.title("Pipeline d'analyse du contenu")
 
@@ -400,10 +409,141 @@ selected_aom = st.selectbox(
 
 if selected_aom:
     nom_aom = next((a[1] for a in aoms if a[0] == selected_aom), "Nom inconnu")
-    sources = next((a[3] for a in aoms if a[0] == selected_aom), "")
-    st.write("Sources pour cet AOM:")
-    for source in sources.split(" | "):
-        st.write(f"- {source}")
+    sources = next((a[3] for a in aoms if a[0] == selected_aom), "").split(
+        " | "
+    )
+
+    # Nouvelle étape de scraping
+    st.header("🕷️ Étape 0 : Scraping des données")
+    with st.expander("Scraper les données de l'AOM"):
+        # Vérifier si l'AOM a été scrapée récemment
+        engine = create_engine(get_postgres_cs())
+        domain = urlparse(sources[0]).netloc
+        with engine.connect() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    SELECT * FROM tarification_raw 
+                    WHERE url_source LIKE :domain_pattern 
+                    AND date_scraping > :cutoff_time
+                    AND n_siren_aom = :siren
+                """
+                ),
+                {
+                    "domain_pattern": f"%{domain}%",
+                    "cutoff_time": datetime.now() - timedelta(hours=48),
+                    "siren": selected_aom,
+                },
+            ).fetchone()
+
+        if result:
+            st.info("⏱️ Les données ont été scrapées récemment (moins de 48h)")
+        else:
+            st.warning("⚠️ Les données n'ont pas été scrapées récemment")
+
+        # Initialisation du crawler si nécessaire
+        if "crawler_manager" not in st.session_state:
+
+            def reset_crawler_callback():
+                st.session_state.crawler_manager = None
+
+            st.session_state.crawler_manager = CrawlerManager(
+                on_crawler_reset=reset_crawler_callback
+            )
+
+        # Bouton pour lancer le scraping
+        if st.button("🕷️ Lancer le scraping", key="start_scraping"):
+            with st.spinner("Scraping en cours..."):
+                try:
+                    # Créer une nouvelle boucle d'événements pour ce thread
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                    # Scraper chaque source
+                    scraped_pages = []
+                    for source in sources:
+                        pages = loop.run_until_complete(
+                            st.session_state.crawler_manager.fetch_content(
+                                source,
+                                st.session_state.get("selected_keywords", []),
+                            )
+                        )
+                        scraped_pages.extend(pages)
+
+                    # Fermer la boucle après utilisation
+                    loop.close()
+
+                    # Afficher les résultats
+                    if scraped_pages:
+                        st.session_state.scraped_pages = (
+                            scraped_pages  # Sauvegarder dans session_state
+                        )
+                        st.success(
+                            f"✅ {len(scraped_pages)} pages scrapées avec succès"
+                        )
+
+                        # Afficher le bouton de sauvegarde avant le contenu
+                        if st.button(
+                            "💾 Sauvegarder les données", key="save_scraped"
+                        ):
+                            with st.spinner("Sauvegarde en cours..."):
+                                try:
+                                    # Supprimer d'abord les anciennes données de l'AOM
+                                    with engine.connect() as conn:
+                                        conn.execute(
+                                            text(
+                                                """
+                                                DELETE FROM tarification_raw 
+                                                WHERE n_siren_aom = :siren
+                                                """
+                                            ),
+                                            {"siren": selected_aom},
+                                        )
+                                        conn.commit()
+
+                                    # Insérer les nouvelles données
+                                    for page in scraped_pages:
+                                        with engine.connect() as conn:
+                                            conn.execute(
+                                                text(
+                                                    """
+                                                    INSERT INTO tarification_raw 
+                                                    (n_siren_aom, url_source, url_page, contenu_scrape)
+                                                    VALUES (:n_siren_aom, :url_source, :url_page, :contenu_scrape)
+                                                """
+                                                ),
+                                                {
+                                                    "n_siren_aom": selected_aom,
+                                                    "url_source": page.source_url,
+                                                    "url_page": page.url,
+                                                    "contenu_scrape": page.markdown,
+                                                },
+                                            )
+                                            conn.commit()
+                                    st.success(
+                                        "✅ Données sauvegardées avec succès"
+                                    )
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(
+                                        f"⚠️ Erreur lors de la sauvegarde : {str(e)}"
+                                    )
+
+                        # Afficher les pages dans des onglets
+                        tabs = st.tabs(
+                            [f"Page {i+1}" for i in range(len(scraped_pages))]
+                        )
+                        for i, page in enumerate(scraped_pages):
+                            with tabs[i]:
+                                st.markdown(f"URL: {page.url}")
+                                st.markdown(page.markdown)
+                    else:
+                        st.warning("⚠️ Aucune page n'a été scrapée")
+
+                except Exception as e:
+                    st.error(f"⚠️ Une erreur est survenue : {str(e)}")
+
+    # Le reste du pipeline continue ici...
     st.subheader("Pipeline d'analyse")
     # Step 0: Configuration des mots-clés
     st.header("🏷️ Étape 0 : Configuration des mots-clés")
