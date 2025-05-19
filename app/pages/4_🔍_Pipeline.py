@@ -9,6 +9,7 @@ import streamlit as st
 # Initialize the event loop before importing crawl4ai
 # flake8: noqa: E402
 nest_asyncio.apply()
+
 import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
@@ -30,7 +31,7 @@ from services.nlp_services import (
 )
 from sqlalchemy import create_engine, text
 from utils.crawler_utils import CrawlerManager
-from utils.db_utils import get_postgres_cs, load_urls_data_from_db
+from utils.db_utils import get_postgres_cs
 
 load_dotenv()
 
@@ -365,12 +366,16 @@ def extract_all_yaml_blocks(yaml_content: str):
     return result
 
 
+def toggle_crawling():
+    if "is_crawling" not in st.session_state:
+        st.session_state.is_crawling = False
+
+    st.session_state.is_crawling = not st.session_state.is_crawling
+    return st.session_state.is_crawling
+
+
 # Interface Streamlit
 st.subheader("Sélection de l'AOM")
-
-# Load the URLs data to get the AOM names
-urls_data = load_urls_data_from_db()
-aom_names = dict(zip(urls_data["n_siren_aom"], urls_data["nom_aom"]))
 
 # Get unique AOMs with their URLs
 with engine.connect() as conn:
@@ -408,6 +413,7 @@ selected_aom = st.selectbox(
 )
 
 if selected_aom:
+    n_siren_aom = next((a[0] for a in aoms if a[0] == selected_aom), None)
     nom_aom = next((a[1] for a in aoms if a[0] == selected_aom), "Nom inconnu")
     sources = next((a[3] for a in aoms if a[0] == selected_aom), "")
     st.write("Sources pour cet AOM:")
@@ -450,6 +456,63 @@ if selected_aom:
             )
             st.session_state.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(st.session_state.loop)
+
+        # Boutons existants pour démarrer/arrêter l'extraction
+        stop_button = st.button(
+            "🛑 Arrêter l'extraction",
+            help="Cliquez pour arrêter l'extraction en cours",
+            disabled=not st.session_state.get("is_crawling", False),
+            on_click=toggle_crawling,
+        )
+
+        start_button = st.button(
+            "🕷️ Lancer l'extraction",
+            help="Cliquez pour lancer l'extraction des données sur les sites web",
+            disabled=st.session_state.get("is_crawling", False),
+            on_click=toggle_crawling,
+        )
+        if start_button:
+            st.session_state.scraped_content = []
+            for url in sources.split(" | "):
+                st.write(f"URL: {url}")
+                try:
+                    # Scraper l'URL
+                    loop = st.session_state.loop
+                    asyncio.set_event_loop(loop)
+                    pages = loop.run_until_complete(
+                        st.session_state.crawler_manager.fetch_content(
+                            url,
+                            st.session_state.selected_keywords,
+                        )
+                    )
+
+                    # Ajouter les pages à la liste globale
+                    st.session_state.scraped_content.extend(pages)
+
+                    # Sauvegarder les données dans la base de données
+                    # for page in pages:
+                    #     with engine.connect() as conn:
+                    #         conn.execute(
+                    #             text(
+                    #                 """
+                    #             INSERT INTO tarification_raw
+                    #             (n_siren_aom, url_source, url_page, contenu_scrape)
+                    #             VALUES (:n_siren_aom, :url_source, :url_page, :contenu_scrape)
+                    #         """
+                    #             ),
+                    #             {
+                    #                 "n_siren_aom": n_siren_aom,
+                    #                 "url_source": url,
+                    #                 "url_page": page.url,
+                    #                 "contenu_scrape": page.markdown,
+                    #             },
+                    #         )
+                    #         conn.commit()
+
+                except Exception as e:
+                    st.error(f"⚠️ Une erreur est survenue : {str(e)}")
+            st.session_state.is_crawling = False
+            st.rerun()
 
     # Step 2: Affichage du contenu scrapé
     with st.expander("👀 Étape 2 : Afficher le contenu scrapé"):
