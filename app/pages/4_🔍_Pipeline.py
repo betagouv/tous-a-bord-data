@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+from datetime import datetime
 from typing import Dict, List
 
 import nest_asyncio
@@ -122,12 +123,12 @@ def get_aom_content_by_source(siren: str, source_url: str) -> str:
             ),
             {"siren": siren, "url": source_url},
         ).fetchall()
-        content_parts = []
+        all_pages = []
         for page in pages:
-            content_parts.append(
+            all_pages.append(
                 f"--- Page: {page.url_page} ---\n{page.contenu_scrape}"
             )
-    return "\n\n".join(content_parts)
+    return "\n\n".join(all_pages)
 
 
 def get_tokenizer_for_model():
@@ -344,7 +345,7 @@ def get_extraction_date(siren: str, source_url: str) -> str:
             {"siren": siren, "url": source_url},
         ).fetchone()
     if result and result.date_scraping:
-        return str(result.date_scraping)
+        return str(result.date_scraping.strftime("%Y-%m-%d"))
     return ""
 
 
@@ -372,6 +373,19 @@ def toggle_crawling():
 
     st.session_state.is_crawling = not st.session_state.is_crawling
     return st.session_state.is_crawling
+
+
+# init crawler
+if "crawler_manager" not in st.session_state:
+
+    def reset_crawler_callback():
+        st.session_state.crawler_manager = None
+
+    st.session_state.crawler_manager = CrawlerManager(
+        on_crawler_reset=reset_crawler_callback
+    )
+    st.session_state.loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(st.session_state.loop)
 
 
 # Interface Streamlit
@@ -405,6 +419,7 @@ selected_aom = st.selectbox(
     ),
     key="selected_aom",
     on_change=lambda: (
+        st.session_state.pop("raw_scraped_content", None),
         st.session_state.pop("scraped_content", None),
         st.session_state.pop("filtered_contents", None),
         st.session_state.pop("cleaned_content", None),
@@ -445,18 +460,6 @@ if selected_aom:
             default=st.session_state.selected_keywords,
         )
 
-        # init crawler
-        if "crawler_manager" not in st.session_state:
-
-            def reset_crawler_callback():
-                st.session_state.crawler_manager = None
-
-            st.session_state.crawler_manager = CrawlerManager(
-                on_crawler_reset=reset_crawler_callback
-            )
-            st.session_state.loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(st.session_state.loop)
-
         # Boutons existants pour démarrer/arrêter l'extraction
         stop_button = st.button(
             "🛑 Arrêter l'extraction",
@@ -472,22 +475,30 @@ if selected_aom:
             on_click=toggle_crawling,
         )
         if start_button:
-            st.session_state.scraped_content = []
-            for url in sources.split(" | "):
-                st.write(f"URL: {url}")
+            st.session_state.raw_scraped_content = {}
+            for url_source in sources.split(" | "):
+                st.session_state.raw_scraped_content[url_source] = []
+                st.write(f"URL: {url_source}")
                 try:
                     # Scraper l'URL
                     loop = st.session_state.loop
                     asyncio.set_event_loop(loop)
                     pages = loop.run_until_complete(
                         st.session_state.crawler_manager.fetch_content(
-                            url,
+                            url_source,
                             st.session_state.selected_keywords,
                         )
                     )
-
                     # Ajouter les pages à la liste globale
-                    st.session_state.scraped_content.extend(pages)
+                    for page in pages:
+                        st.session_state.raw_scraped_content[
+                            url_source
+                        ].append(
+                            {
+                                "url": page.url,
+                                "markdown": page.markdown,
+                            }
+                        )
 
                     # Sauvegarder les données dans la base de données
                     # for page in pages:
@@ -516,31 +527,69 @@ if selected_aom:
 
     # Step 2: Affichage du contenu scrapé
     with st.expander("👀 Étape 2 : Afficher le contenu scrapé"):
-        sources = next((a[3] for a in aoms if a[0] == selected_aom), "").split(
-            " | "
-        )
-        scraped_content = ""
-        for i, source in enumerate(sources):
-            content = get_aom_content_by_source(selected_aom, source)
-            scraped_content += content + "\n\n"
-        nb_tokens = count_tokens(scraped_content)
-        st.write(f"Nombre de tokens : {nb_tokens}")
-        sources_content = {}
-        tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
+        if (
+            "raw_scraped_content" in st.session_state
+            and st.session_state.raw_scraped_content
+        ):
+            # Utiliser les données en session
+            sources = st.session_state.raw_scraped_content
 
-        # Concaténer le contenu de toutes les sources
-        for i, source in enumerate(sources):
-            with tabs[i]:
-                st.write(f"URL: {source}")
-                st.write(
-                    f"Date d'extraction: {get_extraction_date(selected_aom, source)}"
-                )
+            # Préparer le contenu total pour compter les tokens
+            scraped_content = ""
+            for pages in sources.values():
+                for page in pages:
+                    scraped_content += (
+                        f"--- Page: {page['url']} ---\n{page['markdown']}\n\n"
+                    )
+
+            nb_tokens = count_tokens(scraped_content)
+            st.write(f"Nombre de tokens : {nb_tokens}")
+
+            # Afficher le contenu par source
+            tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
+
+            for i, (url_source, pages) in enumerate(sources.items()):
+                with tabs[i]:
+                    st.write(f"Source {i+1}")
+                    st.write(
+                        f"Date d'extraction: {datetime.now().strftime('%Y-%m-%d')}"
+                    )
+                    st.write(f"URL source: {url_source}")
+                    # Afficher chaque page de la source
+                    for page in pages:
+                        st.write(f"URL: {page['url']}")
+                        st.markdown(page["markdown"])
+
+            # Sauvegarder dans session_state pour les étapes suivantes
+            st.session_state.scraped_content = scraped_content
+
+        else:
+            # Fallback sur la base de données (code existant)
+            sources = next(
+                (a[3] for a in aoms if a[0] == selected_aom), ""
+            ).split(" | ")
+            scraped_content = ""
+            for i, source in enumerate(sources):
                 content = get_aom_content_by_source(selected_aom, source)
-                sources_content[source] = content
-                st.markdown(content)
+                scraped_content += content + "\n\n"
+            nb_tokens = count_tokens(scraped_content)
+            st.write(f"Nombre de tokens : {nb_tokens}")
+            sources_content = {}
+            tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
 
-        # Sauvegarder dans session_state pour les étapes suivantes
-        st.session_state.scraped_content = scraped_content
+            # Concaténer le contenu de toutes les sources
+            for i, source in enumerate(sources):
+                with tabs[i]:
+                    st.write(f"URL: {source}")
+                    st.write(
+                        f"Date d'extraction: {get_extraction_date(selected_aom, source)}"
+                    )
+                    content = get_aom_content_by_source(selected_aom, source)
+                    sources_content[source] = content
+                    st.markdown(content)
+
+            # Sauvegarder dans session_state pour les étapes suivantes
+            st.session_state.scraped_content = scraped_content
 
     # Step 3: Filtrage du contenu
     with st.expander("🎯 Étape 3 : Filtrage du contenu"):
@@ -556,13 +605,10 @@ if selected_aom:
             filtered_content = st.session_state.filtered_contents[
                 "Contenu filtré"
             ]
+            nb_tokens = count_tokens(filtered_content)
             if selected_model_filter == "Filtrage NLP":
-                nb_tokens = count_tokens(
-                    filtered_content
-                )  # Version générale pour SpaCy
                 title = f"Contenu filtré (SpaCy) - {nb_tokens} tokens"
             else:
-                nb_tokens = count_tokens(filtered_content)
                 title = f"Contenu filtré - {nb_tokens} tokens"
             st.text_area(
                 title,
@@ -576,7 +622,7 @@ if selected_aom:
             # Vérification du contenu une seule fois
             scraped_content = st.session_state.get("scraped_content", {})
             if not scraped_content:
-                st.error("Veuillez d'abord charger le contenu dans l'étape 1")
+                st.error("Veuillez d'abord charger le contenu dans l'étape 2")
                 st.stop()
 
             if selected_model_filter == "Filtrage NLP":
@@ -649,8 +695,11 @@ if selected_aom:
                 key="selected_llm_yaml",
             )
 
-            sources_str = " || ".join(sources)
-            last_source = sources[-1]
+            sources_str = next(
+                (a[3] for a in aoms if a[0] == selected_aom), ""
+            )
+
+            last_source = sources_str.split(" | ")[-1]
             date_extraction = get_extraction_date(selected_aom, last_source)
 
             if st.button("Générer les fichiers YAML", key="format_in_yaml"):
