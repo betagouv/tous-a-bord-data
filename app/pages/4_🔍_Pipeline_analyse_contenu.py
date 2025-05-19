@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Dict, List
 
 import streamlit as st
@@ -6,6 +7,7 @@ import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
+from prompts.text_to_yaml_parameters import text_to_yaml_parameters
 
 # Nouveaux imports
 from services.llm_services import (
@@ -317,6 +319,44 @@ def extract_content(contents: Dict[str, str], model: str) -> str:
         return result
 
 
+def get_extraction_date(siren: str, source_url: str) -> str:
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                """
+                SELECT date_scraping
+                FROM tarification_raw
+                WHERE n_siren_aom = :siren
+                AND url_source = :url
+                ORDER BY date_scraping DESC
+                LIMIT 1
+                """
+            ),
+            {"siren": siren, "url": source_url},
+        ).fetchone()
+    if result and result.date_extraction:
+        return str(result.date_extraction)
+    return ""
+
+
+def extract_all_yaml_blocks(yaml_content: str):
+    """
+    Extrait tous les blocs YAML du texte généré par le LLM.
+    Retourne un dict {nom_fichier: contenu_yaml}
+    """
+    pattern = (
+        r"(tarifs_tickets\.yaml|tarifs_abonnements\.yaml|"
+        r"tarifs_scolaires\.yaml|baremes\.yaml|"
+        r"conditions_eligibilite\.yaml|zones\.yaml|"
+        r"conditions_specifiques\.yaml)[\s:]*```yaml(.*?)```"
+    )
+    matches = re.findall(pattern, yaml_content, re.DOTALL)
+    result = {}
+    for file_name, content in matches:
+        result[file_name] = content.strip()
+    return result
+
+
 # Interface Streamlit
 st.subheader("Sélection de l'AOM à analyser")
 
@@ -519,9 +559,47 @@ if selected_aom:
     # Step 4: Format in yaml
     st.header("📊 Étape 4 : Format in yaml")
     with st.expander("Format in yaml"):
-        if st.button("Format in yaml", key="format_in_yaml"):
-            if "extracted_content" in st.session_state:
-                # yaml_content = format_in_yaml(
-                #     st.session_state.extracted_content, selected_keywords
-                # )
-                print("not implemented")
+        if "extracted_content" in st.session_state:
+            # Sélecteur du modèle LLM pour la génération YAML
+            selected_model_yaml = st.selectbox(
+                "Modèle LLM pour la génération YAML :",
+                options=list(LLM_MODELS.keys()),
+                key="selected_llm_yaml",
+            )
+
+            sources_str = " || ".join(sources)
+            date_extraction = get_extraction_date(selected_aom, sources_str)
+
+            if st.button("Générer les fichiers YAML", key="format_in_yaml"):
+                with st.spinner("Génération des fichiers YAML en cours..."):
+                    prompt = text_to_yaml_parameters(
+                        st.session_state.extracted_content,
+                        nom_aom,
+                        date_extraction,
+                        sources_str,
+                    )
+                    yaml_content = select_model(selected_model_yaml, prompt)
+                    st.session_state.yaml_content = yaml_content
+
+            # Affichage systématique si yaml_content existe
+            if "yaml_content" in st.session_state:
+                st.subheader("Fichiers YAML générés")
+                yaml_blocks = extract_all_yaml_blocks(
+                    st.session_state.yaml_content
+                )
+                if not yaml_blocks:
+                    st.warning("Aucun fichier YAML détecté")
+                else:
+                    tab_names = list(yaml_blocks.keys())
+                    tabs = st.tabs(tab_names)
+                    for i, file_name in enumerate(tab_names):
+                        with tabs[i]:
+                            st.download_button(
+                                label=f"Télécharger {file_name}",
+                                data=yaml_blocks[file_name],
+                                file_name=file_name,
+                                mime="text/yaml",
+                            )
+                            st.code(yaml_blocks[file_name], language="yaml")
+        else:
+            st.warning("Veuillez d'abord extraire le contenu dans l'étape 3")

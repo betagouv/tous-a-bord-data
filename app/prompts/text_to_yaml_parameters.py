@@ -1,17 +1,17 @@
-def text_to_openfisca_parameters(text):
-    return """
+def text_to_yaml_parameters(text, aom_name, date_extraction, source):
+    return f"""
 Tu es un expert en modélisation OpenFisca. À partir des phrases
-suivantes extraites d'un site web de transport en commun,
+suivantes extraites d'un site web de transport en commun {text},
 génère un ensemble de fichiers YAML de paramètres pour OpenFisca.
 
 Structure des fichiers :
 
 1. tarifs_tickets.yaml :
 ```yaml
-description: Tarifs des tickets pour [AOM]
+description: Tarifs des tickets pour {aom_name}
 metadata:
-  date: 2024-03-20
-  source: [source]
+  date: {date_extraction}
+  source: {source}
 
 tarifs_tickets:
   unite:
@@ -25,10 +25,10 @@ tarifs_tickets:
 
 2. tarifs_abonnements.yaml:
 ```yaml
-description: Tarifs des abonnements standards pour [AOM]
+description: Tarifs des abonnements standards pour {aom_name}
 metadata:
-  date: 2024-03-20
-  source: [source]
+  date: {date_extraction}
+  source: {source}
 
 tarifs_abonnements:
   mensuel:
@@ -37,10 +37,10 @@ tarifs_abonnements:
 ```
 
 3. tarifs_scolaires.yaml :
-description: Tarifs scolaires pour [AOM]
+description: Tarifs scolaires pour {aom_name}
 metadata:
-  date: 2024-03-20
-  source: [source]
+  date: {date_extraction}
+  source: {source}
 
 tarifs_scolaires:
   description: Tarifs spécifiques pour les scolaires
@@ -52,10 +52,10 @@ tarifs_scolaires:
 
 4. baremes.yaml:
 ```yaml
-description: Barèmes de réduction pour [AOM]
+description: Barèmes de réduction pour {aom_name}
 metadata:
-  date: 2024-03-20
-  source: [source]
+  date: {date_extraction}
+  source: {source}
 
 baremes:
   tranches_age:
@@ -85,10 +85,10 @@ baremes:
 
 5. conditions_eligibilite.yaml :
 ```yaml
-description: Conditions d'éligibilité pour les tarifs solidaires de [AOM]
+description: Conditions d'éligibilité pour les tarifs solidaires de {aom_name}
 metadata:
-  date: 2024-03-20
-  source: [source]
+  date: {date_extraction}
+  source: {source}
 
 statuts:
   invalidite:
@@ -100,10 +100,10 @@ statuts:
 
 6. zones.yaml:
 ```yaml
-description: Zones géographiques et tarifs associés pour [AOM]
+description: Zones géographiques et tarifs associés pour {aom_name}
 metadata:
-  date: 2024-03-20
-  source: [source]
+  date: {date_extraction}
+  source: {source}
 
 zones:
   type: multiple
@@ -128,21 +128,6 @@ zones:
         abonnement_annuel: 820.00
 ```
 
-7. conditions_specifiques.yaml :
-```yaml
-description: Conditions spécifiques pour [AOM]
-metadata:
-  date: 2024-03-20
-  source: [source]
-
-conditions_specifiques:
-  gratuit_weekend:
-    description: Gratuité les week-ends
-    active: true
-    jours:
-      - samedi
-      - dimanche
-```
 
 RÈGLES IMPORTANTES :
 1. Tarifs standards :
@@ -171,7 +156,8 @@ RÈGLES IMPORTANTES :
    - Pour les réductions en pourcentage : valeur décimale (0.75 pour 75%)
    - Pour les gratuités : 1.00 (100% de réduction)
 
-5. Conditions spécifiques :
+5. S'il y a des conditions spécifiques, créer un fichier
+conditions_specifiques.yaml :
    - Inclure les conditions particulières
    (gratuité week-end, intermodalite, etc.)
    - Spécifier les jours de gratuité si applicable
