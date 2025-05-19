@@ -334,8 +334,8 @@ def get_extraction_date(siren: str, source_url: str) -> str:
             ),
             {"siren": siren, "url": source_url},
         ).fetchone()
-    if result and result.date_extraction:
-        return str(result.date_extraction)
+    if result and result.date_scraping:
+        return str(result.date_scraping)
     return ""
 
 
@@ -568,10 +568,13 @@ if selected_aom:
             )
 
             sources_str = " || ".join(sources)
-            date_extraction = get_extraction_date(selected_aom, sources_str)
+            last_source = sources[-1]
+            date_extraction = get_extraction_date(selected_aom, last_source)
 
             if st.button("Générer les fichiers YAML", key="format_in_yaml"):
                 with st.spinner("Génération des fichiers YAML en cours..."):
+                    st.write(f"Date d'extraction : {date_extraction}")
+                    st.write(f"Sources : {sources_str}")
                     prompt = text_to_yaml_parameters(
                         st.session_state.extracted_content,
                         nom_aom,
