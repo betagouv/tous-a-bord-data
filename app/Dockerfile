@@ -2,14 +2,11 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Installation des dépendances système et Chromium
 RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg2 \
-    apt-transport-https \
-    ca-certificates \
+    gcc \
+    g++ \
+    build-essential \
     chromium \
-    chromium-driver \
     libgconf-2-4 \
     libxss1 \
     libnss3 \
@@ -27,26 +24,19 @@ RUN apt-get update && apt-get install -y \
     libxfixes3 \
     libxrandr2 \
     xvfb \
-    unzip \
-    # Ajout des dépendances pour crawl4ai
-    nodejs \
-    npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Installation de Playwright et ses navigateurs
-RUN npm install -g playwright
-RUN npx playwright install
-RUN npx playwright install-deps
-
+# Installation des dépendances Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Installation de spaCy et du modèle français
-RUN pip install --no-cache-dir spacy
-RUN python -m spacy download fr_core_news_lg
+# Installation de Crawl4AI et configuration automatique
+RUN pip install --no-cache-dir "crawl4ai>=0.5.0,<0.6.0rc1"
+RUN crawl4ai-setup
 
-# Installation de LlamaIndex et ses dépendances
-RUN pip install --no-cache-dir llama-index llama-index-core llama-index-llms-anthropic llama-index-llms-ollama
+
+# Installation de spaCy et du modèle français
+RUN python -m spacy download fr_core_news_lg
 
 COPY . .
 

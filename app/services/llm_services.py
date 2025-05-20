@@ -7,7 +7,7 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 from openai import OpenAI
 
-MAX_TOKEN_OUTPUT = 2000
+MAX_TOKEN_OUTPUT = 4000
 
 
 # OLLAMA with small models
