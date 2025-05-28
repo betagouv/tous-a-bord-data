@@ -81,10 +81,10 @@ LLM_MODELS = {
         "max_tokens": 100000,
     },
     # too expansive
-    # "Claude 3 Sonnet (Anthropic)": {
-    #     "name": "claude-3-5-sonnet-latest",
-    #     "max_tokens": 200000,
-    # },
+    "Claude 3 Sonnet (Anthropic)": {
+        "name": "claude-3-5-sonnet-latest",
+        "max_tokens": 200000,
+    },
 }
 
 
