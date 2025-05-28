@@ -74,9 +74,6 @@ class CrawlerManager:
             "*/contact*",
             "*/faq*",
             "*/a-propos*",
-            "*/me-deplacer*",
-            "*/se-deplacer*",
-            "*/reseau*",
             "*/plan-du-site*",
             "*/jegeremacartenavigo*",
             "*/actu*",
@@ -123,7 +120,7 @@ class CrawlerManager:
             reverse=True,
         )
         # Create the keyword scorer
-        scorer = KeywordRelevanceScorer(keywords=keywords, weight=10000.0)
+        scorer = KeywordRelevanceScorer(keywords=keywords, weight=1000.0)
 
         scraping_strategy = DFSDeepCrawlStrategy(
             max_depth=4,
