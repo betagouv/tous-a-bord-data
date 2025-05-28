@@ -7,6 +7,8 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 from openai import OpenAI
 
+MAX_TOKEN_OUTPUT = 4000
+
 
 # OLLAMA with small models
 def ensure_ollama_host():
@@ -49,7 +51,7 @@ def call_anthropic(prompt, model):
     client = AnthropicWrapper()
     stream = client.stream_anthropic(
         model=model,
-        max_tokens=4096,  # max tokens for output
+        max_tokens=MAX_TOKEN_OUTPUT,  # max tokens for output
         messages=[{"role": "user", "content": prompt}],
         stream=True,
     )
@@ -73,7 +75,7 @@ def call_scaleway(prompt, model):
     stream = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=4096,  # max tokens for output
+        max_tokens=MAX_TOKEN_OUTPUT,  # max tokens for output
         stream=True,
     )
     current_chunk_text = ""

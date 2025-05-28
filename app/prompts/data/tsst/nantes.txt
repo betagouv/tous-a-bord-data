@@ -1,0 +1,44 @@
+Voici les informations tarifaires des transports en commun que j'ai extraites du texte :
+
+Tarifs standards :
+- Ticket 1h : 1,80€
+- Carnet 10 tickets 1h : 17,50€  
+- Ticket 24h : 6,50€
+- Ticket 24h 4 personnes : 13€
+- Ticket Navette Aéroport : 10€
+
+Billets mensuels :
+- Moins de 12 ans : 17€/mois
+- Moins de 18 ans : 29€/mois  
+- Moins de 26 ans : 37€/mois
+- 26 ans et plus : 62€/mois
+- 60 ans et plus : 34€/mois
+
+Formule Illimitée avec tarification solidaire selon le Quotient Familial (QF) :
+- QF ≤ 350 : Gratuit pour tous
+- QF 351-500 (90% réduction) :
+  - Moins de 12 ans : 1,34€/mois
+  - Moins de 18 ans : 2,31€/mois
+  - Moins de 26 ans : 2,45€/mois  
+  - 26 ans et + : 5,39€/mois
+  - 60 ans et + : 2,98€/mois
+- QF 501-750 (50% réduction, 70% pour 26-59 ans) :
+  - Moins de 12 ans : 6,70€/mois
+  - Moins de 18 ans : 11,55€/mois
+  - Moins de 26 ans : 12,25€/mois
+  - 26 ans et + : 16,17€/mois  
+  - 60 ans et + : 14,90€/mois
+- QF 751-900 (30% réduction) :
+  - Moins de 12 ans : 9,38€/mois
+  - Moins de 18 ans : 16,17€/mois  
+  - Moins de 26 ans : 17,15€/mois
+  - 26 ans et + : 37,73€/mois
+  - 60 ans et + : 20,86€/mois
+
+Zones géographiques : Valable sur l'ensemble du réseau tramway, bus, navibus et TER dans le périmètre de l'agglomération nantaise (hors Navette Aéroport)
+
+Conditions particulières :
+- Gratuité week-end (samedi et dimanche)
+- Gratuité pour les bénéficiaires de l'AAH
+- Prime transport : minimum 50% remboursé par l'employeur
+- Ticket de dépannage à 2,50€ auprès du conducteur
