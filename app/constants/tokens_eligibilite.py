@@ -158,4 +158,6 @@ TOKENS_ELIGIBILITE = [
     "veuve",
     "vivre seul",
     "réduction",
+    "bourse échelon",
+    "échelon CROUS",
 ]

@@ -15,7 +15,7 @@ import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
-from prompts.text_to_yaml_parameters import text_to_yaml_parameters
+from prompts.text_to_publicode import text_to_publicode
 
 # Nouveaux imports
 from services.llm_services import (
@@ -33,6 +33,26 @@ from services.nlp_services import (
 from sqlalchemy import create_engine, text
 from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs
+
+
+# Fonction pour lire le fichier bordeaux.txt
+def load_example(type: str, aom_name: str) -> str:
+    """Charge le contenu du fichier bordeaux.txt"""
+    import os
+    from pathlib import Path
+
+    # Chemin vers le fichier bordeaux.txt
+    current_dir = Path(__file__).parent.parent  # Remonter au dossier app
+    aom_file = current_dir / "prompts" / "data" / type / f"{aom_name}.txt"
+
+    try:
+        with open(aom_file, "r", encoding="utf-8") as file:
+            return file.read()
+    except FileNotFoundError:
+        return "Exemple non trouvé"
+    except Exception as e:
+        return f"Erreur lecture fichier: {str(e)}"
+
 
 load_dotenv()
 
@@ -81,10 +101,14 @@ LLM_MODELS = {
         "max_tokens": 100000,
     },
     # too expansive
-    # "Claude 3 Sonnet (Anthropic)": {
-    #     "name": "claude-3-5-sonnet-latest",
-    #     "max_tokens": 200000,
-    # },
+    "Claude 3 Sonnet (Anthropic)": {
+        "name": "claude-3-5-sonnet-latest",
+        "max_tokens": 200000,
+    },
+    "Claude 4 Sonnet (Anthropic)": {
+        "name": "claude-sonnet-4-20250514",
+        "max_tokens": 200000,
+    },
 }
 
 
@@ -695,43 +719,19 @@ if selected_aom:
                 key="selected_llm_yaml",
             )
 
-            sources_str = next(
-                (a[3] for a in aoms if a[0] == selected_aom), ""
-            )
-
-            last_source = sources_str.split(" | ")[-1]
-            date_extraction = get_extraction_date(selected_aom, last_source)
-
             if st.button("Générer les fichiers YAML", key="format_in_yaml"):
                 with st.spinner("Génération des fichiers YAML en cours..."):
-                    prompt = text_to_yaml_parameters(
+                    # Charger l'exemple de Bordeaux
+                    aom_name = "bordeaux"
+                    example_tsst = load_example("tsst", aom_name)
+                    example_publicode = load_example("publicode", aom_name)
+                    prompt = text_to_publicode(
+                        example_tsst,
+                        example_publicode,
                         st.session_state.cleaned_content,
-                        nom_aom,
-                        date_extraction,
-                        sources_str,
                     )
                     yaml_content = select_model(selected_llm_yaml, prompt)
                     st.session_state.yaml_content = yaml_content
-
-            # Affichage systématique si yaml_content existe
-            if "yaml_content" in st.session_state:
-                st.subheader("Fichiers YAML générés")
-                yaml_blocks = extract_all_yaml_blocks(
-                    st.session_state.yaml_content
-                )
-                if not yaml_blocks:
-                    st.warning("Aucun fichier YAML détecté")
-                else:
-                    tab_names = list(yaml_blocks.keys())
-                    tabs = st.tabs(tab_names)
-                    for i, file_name in enumerate(tab_names):
-                        with tabs[i]:
-                            st.download_button(
-                                label=f"Télécharger {file_name}",
-                                data=yaml_blocks[file_name],
-                                file_name=file_name,
-                                mime="text/yaml",
-                            )
-                            st.code(yaml_blocks[file_name], language="yaml")
+                    st.write(yaml_content)
         else:
             st.warning("Veuillez d'abord nettoyer le contenu")
