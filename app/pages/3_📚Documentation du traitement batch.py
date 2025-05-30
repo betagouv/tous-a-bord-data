@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, text
 from thefuzz import fuzz
 from utils.db_utils import get_postgres_cs
 
-st.title("Pipeline de traitement des données")
+st.title("Documentation du traitement batch")
 
 
 # Connect to database and load data
