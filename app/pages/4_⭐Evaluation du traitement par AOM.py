@@ -202,6 +202,8 @@ def filter_content_by_relevance(
     content: str,
     keywords: List[str],
     model: str,
+    siren: str,
+    name: str,
 ) -> Dict[str, str]:
     """Filtre le contenu pour ne garder que les parties pertinentes"""
     try:
@@ -303,7 +305,9 @@ def filter_content_by_relevance(
 @traceable(
     name="filter_nlp",
 )
-def filter_content_with_nlp(content: str, model="spacy_v1") -> Dict[str, str]:
+def filter_content_with_nlp(
+    content: str, model: str, siren: str, name: str
+) -> Dict[str, str]:
     """Filtre le contenu avec SpaCy"""
     try:
         with st.spinner("Chargement du modèle SpaCy..."):
@@ -325,7 +329,9 @@ def filter_content_with_nlp(content: str, model="spacy_v1") -> Dict[str, str]:
 @traceable(
     name="pre_format",
 )
-def clean_content(contents: Dict[str, str], model: str) -> str:
+def pre_format(
+    contents: Dict[str, str], model: str, siren: str, name: str
+) -> str:
     """Nettoie le contenu pour ne garder que les informations tarifaires"""
     all_content = "\n\n".join(contents.values())
     max_tokens = LLM_MODELS[model]["max_tokens"]
@@ -388,7 +394,7 @@ def clean_content(contents: Dict[str, str], model: str) -> str:
 @traceable(
     name="format_publicode",
 )
-def format_publicode(contents: Dict[str, str], model: str) -> str:
+def format_publicode(content: str, model: str, siren: str, name: str) -> str:
     """Convertit le contenu en format Publicode"""
     # Charger l'exemple de Bordeaux
     aom_name = "bordeaux"
@@ -397,7 +403,7 @@ def format_publicode(contents: Dict[str, str], model: str) -> str:
     prompt = text_to_publicode(
         example_tsst,
         example_publicode,
-        contents["content"],
+        content,
     )
     return select_model(model, prompt)
 
@@ -681,7 +687,12 @@ if selected_aom:
                 st.stop()
 
             if selected_model_filter == "Filtrage NLP":
-                filtered_result = filter_content_with_nlp(scraped_content)
+                filtered_result = filter_content_with_nlp(
+                    scraped_content,
+                    selected_model_filter,
+                    n_siren_aom,
+                    nom_aom,
+                )
                 if filtered_result["Contenu filtré"].strip():
                     st.session_state.filtered_contents = filtered_result
                     st.rerun()
@@ -692,6 +703,8 @@ if selected_aom:
                     content=scraped_content,
                     keywords=selected_keywords,
                     model=selected_model_filter,
+                    siren=n_siren_aom,
+                    name=nom_aom,
                 )
 
                 if filtered_result["Contenu filtré"].strip():
@@ -701,8 +714,8 @@ if selected_aom:
                 else:
                     st.error("Aucun contenu pertinent trouvé dans les sources")
 
-    # Step 4: Cleaning
-    with st.expander("🧹 Étape 4 : Nettoyage du contenu"):
+    # Step 4: Pre-format
+    with st.expander("🧹 Étape 4 : Pre-formattage en langage naturel"):
         selected_llm_cleaner = st.selectbox(
             "Sélectionner le modèle LLM :",
             options=list(LLM_MODELS.keys()),
@@ -718,18 +731,20 @@ if selected_aom:
                 disabled=True,
             )
 
-        if st.button("Lancer le nettoyage", key="clean_content"):
+        if st.button("Lancer le nettoyage", key="pre_format"):
             if "filtered_contents" in st.session_state:
-                cleaned_content = clean_content(
+                cleaned_content = pre_format(
                     st.session_state.filtered_contents,
                     selected_llm_cleaner,
+                    n_siren_aom,
+                    nom_aom,
                 )
                 st.session_state.cleaned_content = cleaned_content
                 st.rerun()
 
     # Step 5: Format in yaml
     with st.expander("📖 Étape 5 : Format in yaml"):
-        if "clean_content" in st.session_state:
+        if "pre_format" in st.session_state:
             # Sélecteur du modèle LLM pour la génération YAML
             selected_llm_yaml = st.selectbox(
                 "Sélectionner le modèle LLM :",
@@ -740,8 +755,10 @@ if selected_aom:
             if st.button("Générer les fichiers YAML", key="format_in_yaml"):
                 with st.spinner("Génération des fichiers YAML en cours..."):
                     yaml_content = format_publicode(
-                        {"content": st.session_state.cleaned_content},
+                        st.session_state.cleaned_content,
                         selected_llm_yaml,
+                        n_siren_aom,
+                        nom_aom,
                     )
                     st.session_state.yaml_content = yaml_content
                     st.write(yaml_content)
