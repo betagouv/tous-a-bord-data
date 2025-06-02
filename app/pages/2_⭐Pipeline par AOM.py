@@ -6,6 +6,7 @@ from typing import Dict, List
 
 import nest_asyncio
 import streamlit as st
+from streamlit_tags import st_tags
 
 # Initialize the event loop before importing crawl4ai
 # flake8: noqa: E402
@@ -14,6 +15,7 @@ nest_asyncio.apply()
 import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
+from constants.tag_dp_mapping import TAG_DP_MAPPING
 from dotenv import load_dotenv
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
@@ -31,9 +33,8 @@ from services.llm_services import (
     call_scaleway,
 )
 from services.nlp_services import (
-    extract_data_providers,
+    create_mapping_matcher,
     extract_markdown_text,
-    extract_tags,
     filter_transport_fare,
     load_spacy_model,
     normalize_text,
@@ -284,13 +285,9 @@ def filter_content_with_nlp(
 
         with st.spinner("Chargement du modèle SpaCy..."):
             nlp = load_spacy_model()
-            st.write("loading spacy model done")
             raw_text = extract_markdown_text(content)
-            st.write("extracting markdown text done")
             paragraphs = normalize_text(raw_text, nlp)
-            st.write("normalize_text done")
             paragraphs_filtered, _ = filter_transport_fare(paragraphs, nlp)
-            st.write("filtering transport fare done")
             filtered = "\n\n".join(paragraphs_filtered)
 
             if filtered:
@@ -386,24 +383,56 @@ def format_publicode(content: str, model: str, siren: str, name: str) -> str:
     return select_model(model, prompt)
 
 
-def get_extraction_date(siren: str, source_url: str) -> str:
-    with engine.connect() as conn:
-        result = conn.execute(
-            text(
-                """
-                SELECT date_scraping
-                FROM tarification_raw
-                WHERE n_siren_aom = :siren
-                AND url_source = :url
-                ORDER BY date_scraping DESC
-                LIMIT 1
-                """
-            ),
-            {"siren": siren, "url": source_url},
-        ).fetchone()
-    if result and result.date_scraping:
-        return str(result.date_scraping.strftime("%Y-%m-%d"))
-    return ""
+@traceable
+def format_tags(text: str, nlp) -> List[str]:
+    """Extrait les tags uniques à partir du texte"""
+    run = get_current_run_tree()
+    st.session_state.run_ids["format_tags"] = run.id
+    # Créer le matcher
+    matcher = create_mapping_matcher(nlp)
+
+    # Traiter le texte
+    doc = nlp(text)
+
+    # Trouver les correspondances et récupérer les tags uniques
+    matches = matcher(doc)
+    tags = set()
+    for _, start, end in matches:
+        token = doc[start:end].text.lower()  # Normaliser en minuscules
+        # Chercher la clé correspondante dans le mapping
+        for mapping_key, mapping_value in TAG_DP_MAPPING.items():
+            if mapping_key.lower() == token and mapping_value.get("tag"):
+                tags.add(mapping_value["tag"])
+                break
+
+    return sorted(list(filter(None, tags)))
+
+
+@traceable
+def format_data_providers(text: str, nlp) -> List[str]:
+    """Extrait les fournisseurs de données uniques à partir du texte"""
+    run = get_current_run_tree()
+    st.session_state.run_ids["format_data_providers"] = run.id
+    # Créer le matcher
+    matcher = create_mapping_matcher(nlp)
+
+    # Traiter le texte
+    doc = nlp(text)
+
+    # Trouver les correspondances et récupérer les fournisseurs uniques
+    matches = matcher(doc)
+    providers = set()
+    for _, start, end in matches:
+        token = doc[start:end].text.lower()  # Normaliser en minuscules
+        # Chercher la clé correspondante dans le mapping
+        for mapping_key, mapping_value in TAG_DP_MAPPING.items():
+            if mapping_key.lower() == token and mapping_value.get(
+                "fournisseur"
+            ):
+                providers.add(mapping_value["fournisseur"])
+                break
+
+    return sorted(list(filter(None, providers)))
 
 
 def show_evaluation_interface(step_name: str, content: str) -> None:
@@ -576,27 +605,6 @@ if selected_aom:
                                 "markdown": page.markdown,
                             }
                         )
-
-                    # Sauvegarder les données dans la base de données
-                    # for page in pages:
-                    #     with engine.connect() as conn:
-                    #         conn.execute(
-                    #             text(
-                    #                 """
-                    #             INSERT INTO tarification_raw
-                    #             (n_siren_aom, url_source, url_page, contenu_scrape)
-                    #             VALUES (:n_siren_aom, :url_source, :url_page, :contenu_scrape)
-                    #         """
-                    #             ),
-                    #             {
-                    #                 "n_siren_aom": n_siren_aom,
-                    #                 "url_source": url,
-                    #                 "url_page": page.url,
-                    #                 "contenu_scrape": page.markdown,
-                    #             },
-                    #         )
-                    #         conn.commit()
-
                 except Exception as e:
                     st.error(f"⚠️ Une erreur est survenue : {str(e)}")
             st.session_state.is_crawling = False
@@ -658,9 +666,6 @@ if selected_aom:
             for i, source in enumerate(sources):
                 with tabs[i]:
                     st.write(f"URL: {source}")
-                    st.write(
-                        f"Date d'extraction: {get_extraction_date(selected_aom, source)}"
-                    )
                     content = get_aom_content_by_source(selected_aom, source)
                     sources_content[source] = content
                     st.markdown(content)
@@ -809,122 +814,84 @@ if selected_aom:
                 "⚠️ Veuillez d'abord compléter l'étape de pré-formatage"
             )
 
-        # Sélection du modèle LLM
-        col_select = st.columns([2, 1])[0]
-        with col_select:
+        with st.expander("Format Publicode", expanded=True):
+            # Sélection du modèle LLM
             selected_llm_yaml = st.selectbox(
                 "Sélectionner le modèle LLM :",
                 options=list(LLM_MODELS.keys()),
                 key="selected_llm_yaml",
                 disabled=not is_previous_step_complete,
             )
+            if st.button(
+                "Générer Publicode",
+                key="format_in_yaml",
+                use_container_width=True,
+                disabled=not is_previous_step_complete,
+            ):
+                with st.spinner("Génération du format Publicode en cours..."):
+                    yaml_content = format_publicode(
+                        st.session_state.pre_formatted_content,
+                        selected_llm_yaml,
+                        n_siren_aom,
+                        nom_aom,
+                    )
+                    st.session_state.yaml_content = yaml_content
+                    st.rerun()
 
-        # Style pour les expanders
-        st.markdown(
-            """
-            <style>
-                .stExpander {
-                    min-width: 100%;
-                }
-                .block-container {
-                    padding-left: 2rem;
-                    padding-right: 2rem;
-                    max-width: 100rem;
-                }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+            # Afficher le contenu YAML s'il existe
+            if "yaml_content" in st.session_state:
+                st.write(st.session_state.yaml_content)
+                # Ajouter l'interface d'évaluation
+                show_evaluation_interface(
+                    "format_publicode", st.session_state.yaml_content
+                )
 
-        col1, col2, col3 = st.columns(3, gap="small")
+        with st.expander("Format Tag", expanded=True):
+            if st.button(
+                "Générer Tags",
+                key="format_in_tags",
+                use_container_width=True,
+                disabled=not is_previous_step_complete,
+            ):
+                with st.spinner("Génération des tags en cours..."):
+                    # Charger le modèle SpaCy
+                    nlp = load_spacy_model()
+                    # Extraire les tags et data providers
+                    st.session_state.tags = format_tags(
+                        st.session_state.pre_formatted_content, nlp
+                    )
+                    st.rerun()
 
-        with col1:
-            with st.expander("Format Publicode", expanded=True):
-                if st.button(
-                    "Générer Publicode",
-                    key="format_in_yaml",
-                    use_container_width=True,
-                    disabled=not is_previous_step_complete,
-                ):
-                    with st.spinner(
-                        "Génération du format Publicode en cours..."
-                    ):
-                        yaml_content = format_publicode(
-                            st.session_state.pre_formatted_content,
-                            selected_llm_yaml,
-                            n_siren_aom,
-                            nom_aom,
-                        )
-                        st.session_state.yaml_content = yaml_content
-                        st.rerun()
+            # Afficher les tags s'ils existent dans la session
+            if "tags" in st.session_state:
+                st.session_state.tags = st_tags(
+                    label="# Tags détectés :",
+                    text="",
+                    value=st.session_state.tags,
+                    key="tag_display",
+                )
+                show_evaluation_interface("format_tags", st.session_state.tags)
 
-                # Afficher le contenu YAML s'il existe
-                if "yaml_content" in st.session_state:
-                    st.write(st.session_state.yaml_content)
-                    # Ajouter l'interface d'évaluation
-                    show_evaluation_interface(
-                        "format_publicode", st.session_state.yaml_content
+        with st.expander("Format Netext", expanded=True):
+            if st.button(
+                "Générer Netext",
+                key="format_in_netext",
+                use_container_width=True,
+                disabled=not is_previous_step_complete,
+            ):
+                st.info(
+                    "La fonction de formatage en Netext sera implémentée ultérieurement"
+                )
+                # Placeholder pour le futur contenu netext
+                if "netext_content" not in st.session_state:
+                    st.session_state.netext_content = (
+                        "Format Netext à implémenter"
                     )
 
-        with col2:
-            with st.expander("Format Tag", expanded=True):
-                if st.button(
-                    "Générer Tags",
-                    key="format_in_tags",
-                    use_container_width=True,
-                    disabled=not is_previous_step_complete,
-                ):
-                    with st.spinner("Génération des tags en cours..."):
-                        # Charger le modèle SpaCy
-                        nlp = load_spacy_model()
-                        # Extraire les tags et data providers
-                        tags = extract_tags(
-                            st.session_state.pre_formatted_content, nlp
-                        )
-                        providers = extract_data_providers(
-                            st.session_state.pre_formatted_content, nlp
-                        )
-
-                        # Formater le résultat
-                        formatted_tags = "\n".join(
-                            [f"- {tag}" for tag in tags]
-                        )
-                        formatted_providers = "\n".join(
-                            [f"- {provider}" for provider in providers]
-                        )
-
-                        st.write(formatted_tags)
-                        st.write(formatted_providers)
-
-                # Afficher le contenu tag s'il existe
-                if "tag_content" in st.session_state:
-                    st.write(st.session_state.tag_content)
-                    # Ajouter l'interface d'évaluation
-                    show_evaluation_interface(
-                        "format_tag", st.session_state.tag_content
-                    )
-
-        with col3:
-            with st.expander("Format Netext", expanded=True):
-                if st.button(
-                    "Générer Netext",
-                    key="format_in_netext",
-                    use_container_width=True,
-                    disabled=not is_previous_step_complete,
-                ):
-                    st.info(
-                        "La fonction de formatage en Netext sera implémentée ultérieurement"
-                    )
-                    # Placeholder pour le futur contenu netext
-                    if "netext_content" not in st.session_state:
-                        st.session_state.netext_content = (
-                            "Format Netext à implémenter"
-                        )
-
-                # Afficher le contenu netext s'il existe
-                if "netext_content" in st.session_state:
-                    st.write(st.session_state.netext_content)
-                    # Ajouter l'interface d'évaluation
-                    show_evaluation_interface(
-                        "format_netext", st.session_state.netext_content
-                    )
+            # Afficher le contenu netext s'il existe
+            if "netext_content" in st.session_state:
+                st.write(st.session_state.netext_content)
+                # Ajouter l'interface d'évaluation
+                show_evaluation_interface(
+                    "format_netext", st.session_state.netext_content
+                )
