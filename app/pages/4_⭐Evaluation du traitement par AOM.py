@@ -36,6 +36,7 @@ from services.nlp_services import (
     normalize_text,
 )
 from sqlalchemy import create_engine, text
+from star_ratings import star_ratings
 from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs
 
@@ -196,6 +197,11 @@ def split_content_in_chunks(content: str, model: str) -> List[str]:
     return chunks
 
 
+# Initialiser le dictionnaire des run_ids s'il n'existe pas
+if "run_ids" not in st.session_state:
+    st.session_state.run_ids = {}
+
+
 @traceable
 def filter_content_by_relevance(
     content: str,
@@ -207,8 +213,8 @@ def filter_content_by_relevance(
     """Filtre le contenu pour ne garder que les parties pertinentes"""
     try:
         run = get_current_run_tree()
-        st.session_state.run_id = run.id
-        st.write(f"✅ Run ID actif : {run.id}")
+        st.session_state.run_ids["filter"] = run.id
+
         nb_tokens = count_tokens(content)
         msg = "Début du filtrage - " f"Nombre de tokens: {nb_tokens}"
         st.write(msg)
@@ -311,8 +317,8 @@ def filter_content_with_nlp(
     """Filtre le contenu avec SpaCy"""
     try:
         run = get_current_run_tree()
-        st.session_state.run_id = run.id
-        st.write(f"✅ Run ID actif : {run.id}")
+        st.session_state.run_ids["filter"] = run.id
+
         with st.spinner("Chargement du modèle SpaCy..."):
             nlp = load_spacy_model()
             raw_text = extract_markdown_text(content)
@@ -335,8 +341,8 @@ def pre_format(
 ) -> str:
     """Nettoie le contenu pour ne garder que les informations tarifaires"""
     run = get_current_run_tree()
-    st.session_state.run_id = run.id
-    st.write(f"✅ Run ID actif : {run.id}")
+    st.session_state.run_ids["pre_format"] = run.id
+
     all_content = "\n\n".join(contents.values())
     max_tokens = LLM_MODELS[model]["max_tokens"]
     nb_tokens = count_tokens(all_content)
@@ -399,8 +405,8 @@ def pre_format(
 def format_publicode(content: str, model: str, siren: str, name: str) -> str:
     """Convertit le contenu en format Publicode"""
     run = get_current_run_tree()
-    st.session_state.run_id = run.id
-    st.write(f"✅ Run ID actif : {run.id}")
+    st.session_state.run_ids["format_publicode"] = run.id
+
     # Charger l'exemple de Bordeaux
     aom_name = "bordeaux"
     example_tsst = load_example("tsst", aom_name)
@@ -438,20 +444,9 @@ def show_evaluation_interface(step_name: str, content: str) -> None:
     st.divider()
     st.subheader("✨ Évaluation")
 
-    # Score de qualité
-    quality_score = st.select_slider(
-        "Qualité générale",
-        options=[0, 0.25, 0.5, 0.75, 1.0],
-        value=0.5,
-        format_func=lambda x: {
-            0: "Très mauvais",
-            0.25: "Mauvais",
-            0.5: "Moyen",
-            0.75: "Bon",
-            1.0: "Excellent",
-        }[x],
-        key=f"quality_{step_name}",
-    )
+    # Score avec star_ratings
+    stars = star_ratings("", numStars=5, key=f"stars_{step_name}")
+    quality_score = stars / 5 if stars is not None else 0
 
     # Correction proposée
     correction = st.text_area(
@@ -463,12 +458,13 @@ def show_evaluation_interface(step_name: str, content: str) -> None:
     # Bouton de sauvegarde
     if st.button("💾 Sauvegarder l'évaluation", key=f"save_{step_name}"):
         with st.spinner("Sauvegarde de l'évaluation..."):
-            if not st.session_state.run_id:
-                st.error("❌ Pas de run actif trouvé")
+            run_id = st.session_state.run_ids.get(step_name)
+            if not run_id:
+                st.error(f"❌ Pas de run_id trouvé pour l'étape {step_name}")
                 return
 
             feedback = evaluation_service.create_feedback(
-                run_id=st.session_state.run_id,
+                run_id=run_id,
                 key="quality",
                 score=quality_score,
                 correction=correction,
@@ -531,11 +527,13 @@ selected_aom = st.selectbox(
     ),
     key="selected_aom",
     on_change=lambda: (
+        # Nettoyer toutes les données de session quand on change d'AOM
         st.session_state.pop("raw_scraped_content", None),
         st.session_state.pop("scraped_content", None),
         st.session_state.pop("filtered_contents", None),
         st.session_state.pop("cleaned_content", None),
         st.session_state.pop("yaml_content", None),
+        st.session_state.pop("run_ids", {}),  # Réinitialiser les run_ids
     ),
 )
 
