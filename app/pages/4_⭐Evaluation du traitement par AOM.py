@@ -15,6 +15,7 @@ import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
+from langsmith import traceable
 from prompts.text_to_publicode import text_to_publicode
 
 # Import pour l'évaluation HITL
@@ -194,6 +195,13 @@ def split_content_in_chunks(content: str, model: str) -> List[str]:
     return chunks
 
 
+@traceable(
+    name="filter_content",
+    run_metadata={
+        "method": "llm",
+        "type": "filtering",
+    },
+)
 def filter_content_by_relevance(
     content: str,
     keywords: List[str],
@@ -294,6 +302,33 @@ def filter_content_by_relevance(
         st.error(f"Erreur de filtrage : {str(e)}")
         st.write("Détails de l'erreur:", e)
         return {"Contenu filtré": f"Erreur lors du filtrage : {str(e)}"}
+
+
+@traceable(
+    name="filter_content",
+    run_metadata={
+        "method": "nlp",
+        "type": "filtering",
+        "model": "spacy_fr_core_news_lg",
+    },
+)
+def filter_content_with_nlp(content: str) -> Dict[str, str]:
+    """Filtre le contenu avec SpaCy"""
+    try:
+        with st.spinner("Chargement du modèle SpaCy..."):
+            nlp = load_spacy_model()
+            raw_text = extract_markdown_text(content)
+            paragraphs = normalize_text(raw_text, nlp)
+            paragraphs_filtered, _ = filter_text_with_spacy(paragraphs, nlp)
+            filtered = "\n\n".join(paragraphs_filtered)
+
+            if filtered:
+                return {"Contenu filtré": filtered}
+            else:
+                return {"Contenu filtré": ""}
+    except Exception as e:
+        st.error(f"Erreur de filtrage NLP : {str(e)}")
+        return {"Contenu filtré": f"Erreur lors du filtrage NLP : {str(e)}"}
 
 
 def clean_content(contents: Dict[str, str], model: str) -> str:
@@ -653,23 +688,12 @@ if selected_aom:
                 st.stop()
 
             if selected_model_filter == "Filtrage NLP":
-                # Chargement du modèle SpaCy une seule fois
-                with st.spinner("Chargement du modèle SpaCy..."):
-                    nlp = load_spacy_model()
-                    raw_text = extract_markdown_text(scraped_content)
-                    paragraphs = normalize_text(raw_text, nlp)
-                    paragraphs_filtered, _ = filter_text_with_spacy(
-                        paragraphs, nlp
-                    )
-                    filtered = "\n\n".join(paragraphs_filtered)
-
-                    if filtered:
-                        st.session_state.filtered_contents = {
-                            "Contenu filtré": filtered
-                        }
-                        st.rerun()
-                    else:
-                        st.warning("Aucun contenu pertinent trouvé")
+                filtered_result = filter_content_with_nlp(scraped_content)
+                if filtered_result["Contenu filtré"].strip():
+                    st.session_state.filtered_contents = filtered_result
+                    st.rerun()
+                else:
+                    st.warning("Aucun contenu pertinent trouvé")
             else:
                 filtered_result = filter_content_by_relevance(
                     content=scraped_content,
@@ -678,9 +702,7 @@ if selected_aom:
                 )
 
                 if filtered_result["Contenu filtré"].strip():
-                    st.session_state.filtered_contents = {
-                        "Contenu filtré": filtered_result["Contenu filtré"]
-                    }
+                    st.session_state.filtered_contents = filtered_result
                     st.success("Filtrage terminé")
                     st.rerun()
                 else:

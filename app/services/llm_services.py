@@ -11,6 +11,15 @@ from openai import OpenAI
 MAX_TOKEN_OUTPUT = 4000
 
 
+def get_model_metadata(model_name: str, platform: str) -> dict:
+    """Crée les métadonnées pour le tracking LangSmith"""
+    return {
+        "model": model_name,
+        "platform": platform,
+        "max_tokens": MAX_TOKEN_OUTPUT,
+    }
+
+
 # OLLAMA with small models
 def ensure_ollama_host():
     if "OLLAMA_HOST" not in os.environ:
@@ -20,7 +29,10 @@ def ensure_ollama_host():
             os.environ["OLLAMA_HOST"] = ollama_host
 
 
-@traceable(name="ollama_llm")
+@traceable(
+    name="ollama_llm",
+    run_metadata=get_model_metadata("llama3:8b", "ollama"),
+)
 def call_ollama(prompt, model="llama3:8b"):
     ensure_ollama_host()
     response = ollama.chat(
@@ -49,7 +61,10 @@ class AnthropicWrapper:
         return self._client.messages.create(**kwargs)
 
 
-@traceable(name="anthropic_llm")
+@traceable(
+    name="anthropic_llm",
+    run_metadata=get_model_metadata("claude-3-5-haiku-latest", "anthropic"),
+)
 def call_anthropic(prompt, model):
     client = AnthropicWrapper()
     stream = client.stream_anthropic(
@@ -66,7 +81,10 @@ def call_anthropic(prompt, model):
 
 
 # TODO: add openai client for scaleways models
-@traceable(name="scaleway_llm")
+@traceable(
+    name="scaleway_llm",
+    run_metadata=get_model_metadata("llama-3.3-70b-instruct", "scaleway"),
+)
 def call_scaleway(prompt, model):
     client = OpenAI(
         base_url=os.getenv(
