@@ -15,10 +15,16 @@ import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
+from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 from prompts.text_to_publicode import text_to_publicode
+
+# Import pour l'évaluation HITL
+from services.evaluation_service import evaluation_service
 
 # Nouveaux imports
 from services.llm_services import (
+    LLM_MODELS,
     MAX_TOKEN_OUTPUT,
     call_anthropic,
     call_ollama,
@@ -31,9 +37,14 @@ from services.nlp_services import (
     normalize_text,
 )
 from sqlalchemy import create_engine, text
+from star_ratings import star_ratings
 from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs
 
+# Configuration de la page pour utiliser plus de largeur
+st.set_page_config(
+    page_title="Evaluation du traitement par AOM", layout="wide"
+)
 
 # Fonction pour lire le fichier bordeaux.txt
 def load_example(type: str, aom_name: str) -> str:
@@ -56,7 +67,7 @@ def load_example(type: str, aom_name: str) -> str:
 
 load_dotenv()
 
-st.title("Pipeline d'extraction des règles tarifaires")
+st.title("Evaluation du traitement par AOM")
 
 # Connect to the database
 engine = create_engine(get_postgres_cs())
@@ -66,50 +77,6 @@ engine = create_engine(get_postgres_cs())
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Constantes pour les modèles LLM disponibles
-LLM_MODELS = {
-    "Llama 3 (Ollama)": {
-        "name": "llama3:8b",
-        "max_tokens": 128000,
-    },
-    "Llama 3.3 70B (Scaleway)": {
-        "name": "llama-3.3-70b-instruct",
-        "max_tokens": 131000,
-    },
-    "Llama 3.1 8B (Scaleway)": {
-        "name": "llama-3.1-8b-instruct",
-        "max_tokens": 128000,
-    },
-    "Mistral Nemo (Scaleway)": {
-        "name": "mistral-nemo-instruct-2407",
-        "max_tokens": 128000,
-    },
-    "Qwen 2.5 32B (Scaleway)": {
-        "name": "qwen2.5-coder-32b-instruct",
-        "max_tokens": 32000,
-    },
-    # not really supported yet
-    # "DeepSeek r1 (Scaleway)": {
-    #     "name": "deepseek-r1",
-    #     "max_tokens": 20000,
-    # },
-    "DeepSeek r1 distill (Scaleway)": {
-        "name": "deepseek-r1-distill-llama-70b",
-        "max_tokens": 32000,
-    },
-    "Claude 3 Haiku (Anthropic)": {
-        "name": "claude-3-5-haiku-latest",
-        "max_tokens": 100000,
-    },
-    # too expansive
-    "Claude 3 Sonnet (Anthropic)": {
-        "name": "claude-3-5-sonnet-latest",
-        "max_tokens": 200000,
-    },
-    "Claude 4 Sonnet (Anthropic)": {
-        "name": "claude-sonnet-4-20250514",
-        "max_tokens": 200000,
-    },
-}
 
 
 def select_model(model_name: str, prompt: str) -> str:
@@ -191,13 +158,24 @@ def split_content_in_chunks(content: str, model: str) -> List[str]:
     return chunks
 
 
+# Initialiser le dictionnaire des run_ids s'il n'existe pas
+if "run_ids" not in st.session_state:
+    st.session_state.run_ids = {}
+
+
+@traceable
 def filter_content_by_relevance(
     content: str,
     keywords: List[str],
     model: str,
+    siren: str,
+    name: str,
 ) -> Dict[str, str]:
     """Filtre le contenu pour ne garder que les parties pertinentes"""
     try:
+        run = get_current_run_tree()
+        st.session_state.run_ids["filter"] = run.id
+
         nb_tokens = count_tokens(content)
         msg = "Début du filtrage - " f"Nombre de tokens: {nb_tokens}"
         st.write(msg)
@@ -293,8 +271,39 @@ def filter_content_by_relevance(
         return {"Contenu filtré": f"Erreur lors du filtrage : {str(e)}"}
 
 
-def clean_content(contents: Dict[str, str], model: str) -> str:
+@traceable
+def filter_content_with_nlp(
+    content: str, model: str, siren: str, name: str
+) -> Dict[str, str]:
+    """Filtre le contenu avec SpaCy"""
+    try:
+        run = get_current_run_tree()
+        st.session_state.run_ids["filter"] = run.id
+
+        with st.spinner("Chargement du modèle SpaCy..."):
+            nlp = load_spacy_model()
+            raw_text = extract_markdown_text(content)
+            paragraphs = normalize_text(raw_text, nlp)
+            paragraphs_filtered, _ = filter_text_with_spacy(paragraphs, nlp)
+            filtered = "\n\n".join(paragraphs_filtered)
+
+            if filtered:
+                return {"Contenu filtré": filtered}
+            else:
+                return {"Contenu filtré": ""}
+    except Exception as e:
+        st.error(f"Erreur de filtrage NLP : {str(e)}")
+        return {"Contenu filtré": f"Erreur lors du filtrage NLP : {str(e)}"}
+
+
+@traceable
+def pre_format(
+    contents: Dict[str, str], model: str, siren: str, name: str
+) -> str:
     """Nettoie le contenu pour ne garder que les informations tarifaires"""
+    run = get_current_run_tree()
+    st.session_state.run_ids["pre_format"] = run.id
+
     all_content = "\n\n".join(contents.values())
     max_tokens = LLM_MODELS[model]["max_tokens"]
     nb_tokens = count_tokens(all_content)
@@ -353,6 +362,24 @@ def clean_content(contents: Dict[str, str], model: str) -> str:
         return result
 
 
+@traceable
+def format_publicode(content: str, model: str, siren: str, name: str) -> str:
+    """Convertit le contenu en format Publicode"""
+    run = get_current_run_tree()
+    st.session_state.run_ids["format_publicode"] = run.id
+
+    # Charger l'exemple de Bordeaux
+    aom_name = "bordeaux"
+    example_tsst = load_example("tsst", aom_name)
+    example_publicode = load_example("publicode", aom_name)
+    prompt = text_to_publicode(
+        example_tsst,
+        example_publicode,
+        content,
+    )
+    return select_model(model, prompt)
+
+
 def get_extraction_date(siren: str, source_url: str) -> str:
     with engine.connect() as conn:
         result = conn.execute(
@@ -373,22 +400,40 @@ def get_extraction_date(siren: str, source_url: str) -> str:
     return ""
 
 
-def extract_all_yaml_blocks(yaml_content: str):
-    """
-    Extrait tous les blocs YAML du texte généré par le LLM.
-    Retourne un dict {nom_fichier: contenu_yaml}
-    """
-    pattern = (
-        r"(tarifs_tickets\.yaml|tarifs_abonnements\.yaml|"
-        r"tarifs_scolaires\.yaml|baremes\.yaml|"
-        r"conditions_eligibilite\.yaml|zones\.yaml|"
-        r"conditions_specifiques\.yaml)[\s:]*```yaml(.*?)```"
+def show_evaluation_interface(step_name: str, content: str) -> None:
+    """Affiche l'interface d'évaluation pour une étape"""
+    st.divider()
+    st.subheader("✨ Évaluation")
+
+    # Score avec star_ratings
+    stars = star_ratings("", numStars=5, key=f"stars_{step_name}")
+    quality_score = stars / 5 if stars is not None else 0
+
+    # Correction proposée
+    correction = st.text_area(
+        "Correction proposée (optionnel)",
+        placeholder="Proposez une version corrigée du résultat...",
+        key=f"correction_{step_name}",
     )
-    matches = re.findall(pattern, yaml_content, re.DOTALL)
-    result = {}
-    for file_name, content in matches:
-        result[file_name] = content.strip()
-    return result
+
+    # Bouton de sauvegarde
+    if st.button("💾 Sauvegarder l'évaluation", key=f"save_{step_name}"):
+        with st.spinner("Sauvegarde de l'évaluation..."):
+            run_id = st.session_state.run_ids.get(step_name)
+            if not run_id:
+                st.error(f"❌ Pas de run_id trouvé pour l'étape {step_name}")
+                return
+
+            feedback = evaluation_service.create_feedback(
+                run_id=run_id,
+                key="quality",
+                score=quality_score,
+                correction=correction,
+            )
+            if feedback:
+                st.success("✅ Évaluation sauvegardée !")
+            else:
+                st.error("❌ Erreur lors de la sauvegarde")
 
 
 def toggle_crawling():
@@ -443,11 +488,13 @@ selected_aom = st.selectbox(
     ),
     key="selected_aom",
     on_change=lambda: (
+        # Nettoyer toutes les données de session quand on change d'AOM
         st.session_state.pop("raw_scraped_content", None),
         st.session_state.pop("scraped_content", None),
         st.session_state.pop("filtered_contents", None),
         st.session_state.pop("cleaned_content", None),
         st.session_state.pop("yaml_content", None),
+        st.session_state.pop("run_ids", {}),  # Réinitialiser les run_ids
     ),
 )
 
@@ -617,11 +664,21 @@ if selected_aom:
 
     # Step 3: Filtrage du contenu
     with st.expander("🎯 Étape 3 : Filtrage du contenu"):
+        # Vérifier si l'étape précédente est complétée
+        is_previous_step_complete = (
+            "scraped_content" in st.session_state
+            and st.session_state.scraped_content
+        )
+
+        if not is_previous_step_complete:
+            st.warning("⚠️ Veuillez d'abord compléter l'étape de scraping")
+
         model_options = ["Filtrage NLP"] + list(LLM_MODELS.keys())
         selected_model_filter = st.selectbox(
             "Méthode de filtrage :",
             options=model_options,
             key="selected_llm_filter",
+            disabled=not is_previous_step_complete,
         )
 
         # Afficher le contenu filtré s'il existe
@@ -637,101 +694,218 @@ if selected_aom:
             st.text_area(
                 title,
                 value=filtered_content,
-                height=300,
+                height=500,
                 disabled=True,
-                key="filtered_content_display",
             )
+            # Ajouter l'interface d'évaluation
+            show_evaluation_interface("filter", filtered_content)
 
-        if st.button("Lancer le filtrage", key="filter_content"):
+        if st.button(
+            "Lancer le filtrage",
+            key="filter_content",
+            disabled=not is_previous_step_complete,
+        ):
             # Vérification du contenu une seule fois
             scraped_content = st.session_state.get("scraped_content", {})
             if not scraped_content:
                 st.error("Veuillez d'abord charger le contenu dans l'étape 2")
                 st.stop()
-
             if selected_model_filter == "Filtrage NLP":
-                # Chargement du modèle SpaCy une seule fois
-                with st.spinner("Chargement du modèle SpaCy..."):
-                    nlp = load_spacy_model()
-                    raw_text = extract_markdown_text(scraped_content)
-                    paragraphs = normalize_text(raw_text, nlp)
-                    paragraphs_filtered, _ = filter_text_with_spacy(
-                        paragraphs, nlp
-                    )
-                    filtered = "\n\n".join(paragraphs_filtered)
-
-                    if filtered:
-                        st.session_state.filtered_contents = {
-                            "Contenu filtré": filtered
-                        }
-                        st.rerun()
-                    else:
-                        st.warning("Aucun contenu pertinent trouvé")
+                filtered_result = filter_content_with_nlp(
+                    scraped_content,
+                    selected_model_filter,
+                    n_siren_aom,
+                    nom_aom,
+                )
+                if filtered_result["Contenu filtré"].strip():
+                    st.session_state.filtered_contents = filtered_result
+                    st.success("Filtrage terminé")
+                    st.rerun()
+                else:
+                    st.error("Aucun contenu pertinent trouvé dans les sources")
             else:
                 filtered_result = filter_content_by_relevance(
                     content=scraped_content,
                     keywords=selected_keywords,
                     model=selected_model_filter,
+                    siren=n_siren_aom,
+                    name=nom_aom,
                 )
 
                 if filtered_result["Contenu filtré"].strip():
-                    st.session_state.filtered_contents = {
-                        "Contenu filtré": filtered_result["Contenu filtré"]
-                    }
+                    st.session_state.filtered_contents = filtered_result
                     st.success("Filtrage terminé")
                     st.rerun()
                 else:
                     st.error("Aucun contenu pertinent trouvé dans les sources")
 
-    # Step 4: Cleaning
-    with st.expander("🧹 Étape 4 : Nettoyage du contenu"):
+    # Step 4: Pre-format
+    with st.expander("🧹 Étape 4 : Pre-formattage en langage naturel"):
+        # Vérifier si l'étape précédente est complétée
+        is_previous_step_complete = (
+            "filtered_contents" in st.session_state
+            and st.session_state.filtered_contents.get(
+                "Contenu filtré", ""
+            ).strip()
+        )
+
+        if not is_previous_step_complete:
+            st.warning("⚠️ Veuillez d'abord compléter l'étape de filtrage")
+
         selected_llm_cleaner = st.selectbox(
             "Sélectionner le modèle LLM :",
             options=list(LLM_MODELS.keys()),
             key="selected_llm_cleaner",
+            disabled=not is_previous_step_complete,
         )
 
         # Afficher le contenu nettoyé s'il existe
-        if "cleaned_content" in st.session_state:
+        if "pre_formatted_content" in st.session_state:
             st.text_area(
-                "Contenu nettoyé",
-                value=st.session_state.cleaned_content,
+                "Contenu pré-formatté",
+                value=st.session_state.pre_formatted_content,
                 height=300,
                 disabled=True,
             )
+            # Ajouter l'interface d'évaluation
+            show_evaluation_interface(
+                "pre_format", st.session_state.pre_formatted_content
+            )
 
-        if st.button("Lancer le nettoyage", key="clean_content"):
+        if st.button(
+            "Lancer le pré-formattage",
+            key="pre_format",
+            disabled=not is_previous_step_complete,
+        ):
             if "filtered_contents" in st.session_state:
-                cleaned_content = clean_content(
+                pre_formatted_content = pre_format(
                     st.session_state.filtered_contents,
                     selected_llm_cleaner,
+                    n_siren_aom,
+                    nom_aom,
                 )
-                st.session_state.cleaned_content = cleaned_content
+                st.session_state.pre_formatted_content = pre_formatted_content
                 st.rerun()
 
     # Step 5: Format in yaml
-    with st.expander("📖 Étape 5 : Format in yaml"):
-        if "clean_content" in st.session_state:
-            # Sélecteur du modèle LLM pour la génération YAML
+    st.subheader("📖 Étape 5 : Formatage")
+
+    # Utiliser le conteneur pour plus de largeur
+    with st.container():
+        # Vérifier si l'étape précédente est complétée
+        is_previous_step_complete = (
+            "pre_formatted_content" in st.session_state
+            and st.session_state.pre_formatted_content
+        )
+
+        if not is_previous_step_complete:
+            st.warning(
+                "⚠️ Veuillez d'abord compléter l'étape de pré-formatage"
+            )
+
+        # Sélection du modèle LLM
+        col_select = st.columns([2, 1])[0]
+        with col_select:
             selected_llm_yaml = st.selectbox(
                 "Sélectionner le modèle LLM :",
                 options=list(LLM_MODELS.keys()),
                 key="selected_llm_yaml",
+                disabled=not is_previous_step_complete,
             )
 
-            if st.button("Générer les fichiers YAML", key="format_in_yaml"):
-                with st.spinner("Génération des fichiers YAML en cours..."):
-                    # Charger l'exemple de Bordeaux
-                    aom_name = "bordeaux"
-                    example_tsst = load_example("tsst", aom_name)
-                    example_publicode = load_example("publicode", aom_name)
-                    prompt = text_to_publicode(
-                        example_tsst,
-                        example_publicode,
-                        st.session_state.cleaned_content,
+        # Style pour les expanders
+        st.markdown(
+            """
+            <style>
+                .stExpander {
+                    min-width: 100%;
+                }
+                .block-container {
+                    padding-left: 2rem;
+                    padding-right: 2rem;
+                    max-width: 100rem;
+                }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        col1, col2, col3 = st.columns(3, gap="small")
+
+        with col1:
+            with st.expander("Format Publicode", expanded=True):
+                if st.button(
+                    "Générer Publicode",
+                    key="format_in_yaml",
+                    use_container_width=True,
+                    disabled=not is_previous_step_complete,
+                ):
+                    with st.spinner(
+                        "Génération du format Publicode en cours..."
+                    ):
+                        yaml_content = format_publicode(
+                            st.session_state.pre_formatted_content,
+                            selected_llm_yaml,
+                            n_siren_aom,
+                            nom_aom,
+                        )
+                        st.session_state.yaml_content = yaml_content
+                        st.rerun()
+
+                # Afficher le contenu YAML s'il existe
+                if "yaml_content" in st.session_state:
+                    st.write(st.session_state.yaml_content)
+                    # Ajouter l'interface d'évaluation
+                    show_evaluation_interface(
+                        "format_publicode", st.session_state.yaml_content
                     )
-                    yaml_content = select_model(selected_llm_yaml, prompt)
-                    st.session_state.yaml_content = yaml_content
-                    st.write(yaml_content)
-        else:
-            st.warning("Veuillez d'abord nettoyer le contenu")
+
+        with col2:
+            with st.expander("Format Tag", expanded=True):
+                if st.button(
+                    "Générer Tags",
+                    key="format_in_tags",
+                    use_container_width=True,
+                    disabled=not is_previous_step_complete,
+                ):
+                    st.info(
+                        "La fonction de formatage en tags sera implémentée ultérieurement"
+                    )
+                    # Placeholder pour le futur contenu tag
+                    if "tag_content" not in st.session_state:
+                        st.session_state.tag_content = (
+                            "Format tag à implémenter"
+                        )
+
+                # Afficher le contenu tag s'il existe
+                if "tag_content" in st.session_state:
+                    st.write(st.session_state.tag_content)
+                    # Ajouter l'interface d'évaluation
+                    show_evaluation_interface(
+                        "format_tag", st.session_state.tag_content
+                    )
+
+        with col3:
+            with st.expander("Format Netext", expanded=True):
+                if st.button(
+                    "Générer Netext",
+                    key="format_in_netext",
+                    use_container_width=True,
+                    disabled=not is_previous_step_complete,
+                ):
+                    st.info(
+                        "La fonction de formatage en Netext sera implémentée ultérieurement"
+                    )
+                    # Placeholder pour le futur contenu netext
+                    if "netext_content" not in st.session_state:
+                        st.session_state.netext_content = (
+                            "Format Netext à implémenter"
+                        )
+
+                # Afficher le contenu netext s'il existe
+                if "netext_content" in st.session_state:
+                    st.write(st.session_state.netext_content)
+                    # Ajouter l'interface d'évaluation
+                    show_evaluation_interface(
+                        "format_netext", st.session_state.netext_content
+                    )

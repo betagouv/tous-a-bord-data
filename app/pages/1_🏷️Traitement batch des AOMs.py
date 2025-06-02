@@ -74,7 +74,7 @@ st.write("### 2. Sélection des étapes")
 steps = {
     "filtering": "Filtrage du contenu",
     "pre_formatting": "Pré-formatage en langage naturel",
-    "yaml_formatting": "Formatage en YAML",
+    "tags_formatting": "Formatage en tags",
 }
 
 selected_steps = []
