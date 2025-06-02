@@ -16,10 +16,11 @@ from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
 from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 from prompts.text_to_publicode import text_to_publicode
 
 # Import pour l'évaluation HITL
-from services.evaluation_service import evaluation_service, get_trace_name
+from services.evaluation_service import evaluation_service
 
 # Nouveaux imports
 from services.llm_services import (
@@ -37,13 +38,6 @@ from services.nlp_services import (
 from sqlalchemy import create_engine, text
 from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs
-
-
-def store_run_id(run_id: str, step_name: str) -> None:
-    """Stocke le run_id dans la session Streamlit"""
-    import streamlit as st
-
-    st.session_state[f"current_run_{step_name}"] = run_id
 
 
 # Fonction pour lire le fichier bordeaux.txt
@@ -202,9 +196,7 @@ def split_content_in_chunks(content: str, model: str) -> List[str]:
     return chunks
 
 
-@traceable(
-    name=lambda *args, **kwargs: get_trace_name("filter", kwargs.get("model"))
-)
+@traceable
 def filter_content_by_relevance(
     content: str,
     keywords: List[str],
@@ -214,6 +206,9 @@ def filter_content_by_relevance(
 ) -> Dict[str, str]:
     """Filtre le contenu pour ne garder que les parties pertinentes"""
     try:
+        run = get_current_run_tree()
+        st.session_state.run_id = run.id
+        st.write(f"✅ Run ID actif : {run.id}")
         nb_tokens = count_tokens(content)
         msg = "Début du filtrage - " f"Nombre de tokens: {nb_tokens}"
         st.write(msg)
@@ -309,14 +304,15 @@ def filter_content_by_relevance(
         return {"Contenu filtré": f"Erreur lors du filtrage : {str(e)}"}
 
 
-@traceable(
-    name="filter_nlp", on_end=lambda run: store_run_id(run.id, "filter")
-)
+@traceable
 def filter_content_with_nlp(
     content: str, model: str, siren: str, name: str
 ) -> Dict[str, str]:
     """Filtre le contenu avec SpaCy"""
     try:
+        run = get_current_run_tree()
+        st.session_state.run_id = run.id
+        st.write(f"✅ Run ID actif : {run.id}")
         with st.spinner("Chargement du modèle SpaCy..."):
             nlp = load_spacy_model()
             raw_text = extract_markdown_text(content)
@@ -333,13 +329,14 @@ def filter_content_with_nlp(
         return {"Contenu filtré": f"Erreur lors du filtrage NLP : {str(e)}"}
 
 
-@traceable(
-    name="pre_format", on_end=lambda run: store_run_id(run.id, "pre_format")
-)
+@traceable
 def pre_format(
     contents: Dict[str, str], model: str, siren: str, name: str
 ) -> str:
     """Nettoie le contenu pour ne garder que les informations tarifaires"""
+    run = get_current_run_tree()
+    st.session_state.run_id = run.id
+    st.write(f"✅ Run ID actif : {run.id}")
     all_content = "\n\n".join(contents.values())
     max_tokens = LLM_MODELS[model]["max_tokens"]
     nb_tokens = count_tokens(all_content)
@@ -398,12 +395,12 @@ def pre_format(
         return result
 
 
-@traceable(
-    name="format_publicode",
-    on_end=lambda run: store_run_id(run.id, "format_publicode"),
-)
+@traceable
 def format_publicode(content: str, model: str, siren: str, name: str) -> str:
     """Convertit le contenu en format Publicode"""
+    run = get_current_run_tree()
+    st.session_state.run_id = run.id
+    st.write(f"✅ Run ID actif : {run.id}")
     # Charger l'exemple de Bordeaux
     aom_name = "bordeaux"
     example_tsst = load_example("tsst", aom_name)
@@ -437,12 +434,7 @@ def get_extraction_date(siren: str, source_url: str) -> str:
 
 
 def show_evaluation_interface(step_name: str, content: str) -> None:
-    """Affiche l'interface d'évaluation pour une étape
-
-    Args:
-        step_name: Nom de l'étape (filter, pre_format, format_publicode)
-        content: Contenu à évaluer
-    """
+    """Affiche l'interface d'évaluation pour une étape"""
     st.divider()
     st.subheader("✨ Évaluation")
 
@@ -471,13 +463,15 @@ def show_evaluation_interface(step_name: str, content: str) -> None:
     # Bouton de sauvegarde
     if st.button("💾 Sauvegarder l'évaluation", key=f"save_{step_name}"):
         with st.spinner("Sauvegarde de l'évaluation..."):
+            if not st.session_state.run_id:
+                st.error("❌ Pas de run actif trouvé")
+                return
+
             feedback = evaluation_service.create_feedback(
-                run_id=st.session_state.get(f"current_run_{step_name}"),
+                run_id=st.session_state.run_id,
                 key="quality",
                 score=quality_score,
-                correction={"corrected_output": correction}
-                if correction
-                else None,
+                correction=correction,
             )
             if feedback:
                 st.success("✅ Évaluation sauvegardée !")
@@ -743,7 +737,6 @@ if selected_aom:
             if not scraped_content:
                 st.error("Veuillez d'abord charger le contenu dans l'étape 2")
                 st.stop()
-
             if selected_model_filter == "Filtrage NLP":
                 filtered_result = filter_content_with_nlp(
                     scraped_content,
@@ -753,9 +746,10 @@ if selected_aom:
                 )
                 if filtered_result["Contenu filtré"].strip():
                     st.session_state.filtered_contents = filtered_result
+                    st.success("Filtrage terminé")
                     st.rerun()
                 else:
-                    st.warning("Aucun contenu pertinent trouvé")
+                    st.error("Aucun contenu pertinent trouvé dans les sources")
             else:
                 filtered_result = filter_content_by_relevance(
                     content=scraped_content,
@@ -822,8 +816,14 @@ if selected_aom:
                         nom_aom,
                     )
                     st.session_state.yaml_content = yaml_content
-                    st.write(yaml_content)
-                    # Ajouter l'interface d'évaluation
-                    show_evaluation_interface("format_publicode", yaml_content)
+                    st.rerun()
+
+            # Afficher le contenu YAML s'il existe
+            if "yaml_content" in st.session_state:
+                st.write(st.session_state.yaml_content)
+                # Ajouter l'interface d'évaluation
+                show_evaluation_interface(
+                    "format_publicode", st.session_state.yaml_content
+                )
         else:
             st.warning("Veuillez d'abord nettoyer le contenu")
