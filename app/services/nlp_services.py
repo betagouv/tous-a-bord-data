@@ -25,6 +25,36 @@ def extract_markdown_text(markdown_text):
     return raw_text
 
 
+def create_transport_fare_matcher(nlp):
+    """Crée et configure le composant transport_fare_matcher"""
+
+    @spacy.Language.component("transport_fare_matcher")
+    def matcher(doc):
+        # Use the phrase matcher
+        matches = nlp.user_data["phrase_matcher"](doc)
+        for match_id, start, end in matches:
+            # Create a span with a custom label
+            span = Span(doc, start, end, label="CRITERE_ELIGIBILITE")
+            doc.ents = spacy.util.filter_spans(list(doc.ents) + [span])
+        # Use the regex matcher
+        matches = nlp.user_data["matcher"](doc)
+        for match_id, start, end in matches:
+            # Get the name of the pattern
+            rule_id = nlp.vocab.strings[match_id]
+            span = Span(doc, start, end, label=rule_id)
+            doc.ents = spacy.util.filter_spans(list(doc.ents) + [span])
+        # Recognize specific entities
+        for token in doc:
+            if token.text in ENTITES:
+                span = Span(
+                    doc, token.i, token.i + 1, label="ACRONYME_ELIGIBILITE"
+                )
+                doc.ents = spacy.util.filter_spans(list(doc.ents) + [span])
+        return doc
+
+    return matcher
+
+
 # Load the fr_core_news_lg model
 @st.cache_resource
 def load_spacy_model():
@@ -48,7 +78,12 @@ def load_spacy_model():
                 # Detect : "18 ans", "25 ans", etc.
                 [{"TEXT": {"REGEX": r"\d+"}}, {"LOWER": "ans"}],
                 # Detect : "18 ans et plus", "25 ans et plus", etc.
-                [{"TEXT": {"REGEX": r"\d+"}}, {"LOWER": "ans et plus"}],
+                [
+                    {"TEXT": {"REGEX": r"\d+"}},
+                    {"LOWER": "ans"},
+                    {"LOWER": "et"},
+                    {"LOWER": "plus"},
+                ],
                 # Detect : "moins de 18 ans"
                 [
                     {"LOWER": "moins"},
@@ -100,7 +135,7 @@ def load_spacy_model():
         matcher.add(
             "TARIF",
             [
-                # Detect : "10 €"
+                # Detect : "10€"
                 [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "€"}],
                 # Detect : "10 euros"
                 [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "euros"}],
@@ -126,7 +161,6 @@ def load_spacy_model():
         matcher.add(
             "QF",
             [
-                # Detect : "QF inférieur à 1", "QF supérieur à 1",
                 # "quotient familial inférieur à 1",
                 # "quotient familial supérieur à 1"
                 [
@@ -167,34 +201,11 @@ def load_spacy_model():
         # Add the matcher and the phrase_matcher to the pipeline components
         nlp.user_data["matcher"] = matcher
         nlp.user_data["phrase_matcher"] = phrase_matcher
-        # Add a custom pipe to recognize specific entities
 
-        @spacy.Language.component("eligibilite_matcher")
-        def eligibilite_matcher(doc):
-            # Use the phrase matcher
-            matches = nlp.user_data["phrase_matcher"](doc)
-            for match_id, start, end in matches:
-                # Create a span with a custom label
-                span = Span(doc, start, end, label="CRITERE_ELIGIBILITE")
-                doc.ents = spacy.util.filter_spans(list(doc.ents) + [span])
-            # Use the regex matcher
-            matches = nlp.user_data["matcher"](doc)
-            for match_id, start, end in matches:
-                # Get the name of the pattern
-                rule_id = nlp.vocab.strings[match_id]
-                span = Span(doc, start, end, label=rule_id)
-                doc.ents = spacy.util.filter_spans(list(doc.ents) + [span])
-            # Recognize specific entities
-            for token in doc:
-                if token.text in ENTITES:
-                    span = Span(
-                        doc, token.i, token.i + 1, label="ACRONYME_ELIGIBILITE"
-                    )
-                    doc.ents = spacy.util.filter_spans(list(doc.ents) + [span])
-            return doc
-
-        # Add the component to the pipeline
-        nlp.add_pipe("eligibilite_matcher", last=True)
+        # Create and add the eligibilite_matcher component
+        # flake8: noqa: F841
+        transport_fare_matcher = create_transport_fare_matcher(nlp)
+        nlp.add_pipe("transport_fare_matcher", last=True)
         return nlp
     except OSError:
         st.error("Installation en cours...")
