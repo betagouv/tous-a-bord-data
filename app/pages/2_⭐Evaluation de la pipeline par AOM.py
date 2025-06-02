@@ -895,7 +895,6 @@ if selected_aom:
 
                         st.write(formatted_tags)
                         st.write(formatted_providers)
-                        st.rerun()
 
                 # Afficher le contenu tag s'il existe
                 if "tag_content" in st.session_state:

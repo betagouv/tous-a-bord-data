@@ -306,73 +306,55 @@ def count_tokens(text, nlp):
     return len(doc)
 
 
-def create_tag_matcher(nlp):
-    """Crée un matcher uniquement pour les tags"""
-    # Configure the phrase matcher for tags
-    tag_matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
-
-    # Add patterns for each token in TAG_DP_MAPPING
-    for token in TAG_DP_MAPPING.keys():
-        pattern = nlp(token.lower())
-        tag_info = TAG_DP_MAPPING[token]
-        # Use the tag as the pattern name
-        tag_matcher.add(tag_info["tag"], [pattern])
-
-    return tag_matcher
-
-
-def create_dp_matcher(nlp):
-    """Crée un matcher uniquement pour les data providers"""
-    # Configure the phrase matcher for data providers
-    dp_matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
-
-    # Add patterns for each token in TAG_DP_MAPPING
-    for token in TAG_DP_MAPPING.keys():
-        pattern = nlp(token.lower())
-        dp_info = TAG_DP_MAPPING[token]
-        # Use the provider as the pattern name
-        dp_matcher.add(dp_info["fournisseur"], [pattern])
-
-    return dp_matcher
+def create_mapping_matcher(nlp):
+    """Crée un matcher pour détecter les tokens"""
+    matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+    patterns = {token: nlp(token.lower()) for token in TAG_DP_MAPPING.keys()}
+    matcher.add("TOKEN", list(patterns.values()))
+    return matcher
 
 
 def extract_tags(text: str, nlp) -> List[str]:
-    """Extrait uniquement les tags du texte"""
+    """Extrait les tags uniques à partir du texte"""
     # Créer le matcher
-    tag_matcher = create_tag_matcher(nlp)
+    matcher = create_mapping_matcher(nlp)
 
     # Traiter le texte
     doc = nlp(text)
 
-    # Trouver les correspondances
-    matches = tag_matcher(doc)
+    # Trouver les correspondances et récupérer les tags uniques
+    matches = matcher(doc)
+    tags = set()
+    for _, start, end in matches:
+        token = doc[start:end].text.lower()  # Normaliser en minuscules
+        # Chercher la clé correspondante dans le mapping
+        for mapping_key, mapping_value in TAG_DP_MAPPING.items():
+            if mapping_key.lower() == token and mapping_value.get("tag"):
+                tags.add(mapping_value["tag"])
+                break
 
-    # Collecter les tags uniques
-    tags = []
-    for match_id, start, end in matches:
-        tag_name = nlp.vocab.strings[match_id]
-        if tag_name not in tags:
-            tags.append(tag_name)
-
-    return sorted(tags)
+    return sorted(list(filter(None, tags)))
 
 
 def extract_data_providers(text: str, nlp) -> List[str]:
-    """Extrait uniquement les fournisseurs de données du texte"""
+    """Extrait les fournisseurs de données uniques à partir du texte"""
     # Créer le matcher
-    dp_matcher = create_dp_matcher(nlp)
+    matcher = create_mapping_matcher(nlp)
 
     # Traiter le texte
     doc = nlp(text)
 
-    # Trouver les correspondances
-    matches = dp_matcher(doc)
+    # Trouver les correspondances et récupérer les fournisseurs uniques
+    matches = matcher(doc)
+    providers = set()
+    for _, start, end in matches:
+        token = doc[start:end].text.lower()  # Normaliser en minuscules
+        # Chercher la clé correspondante dans le mapping
+        for mapping_key, mapping_value in TAG_DP_MAPPING.items():
+            if mapping_key.lower() == token and mapping_value.get(
+                "fournisseur"
+            ):
+                providers.add(mapping_value["fournisseur"])
+                break
 
-    # Collecter les fournisseurs uniques
-    providers = []
-    for match_id, start, end in matches:
-        provider_name = nlp.vocab.strings[match_id]
-        if provider_name not in providers:
-            providers.append(provider_name)
-
-    return sorted(providers)
+    return sorted(list(filter(None, providers)))
