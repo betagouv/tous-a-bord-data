@@ -19,7 +19,7 @@ from langsmith import traceable
 from prompts.text_to_publicode import text_to_publicode
 
 # Import pour l'évaluation HITL
-from services.evaluation_service import evaluation_service
+from services.evaluation_service import evaluation_service, get_trace_name
 
 # Nouveaux imports
 from services.llm_services import (
@@ -196,11 +196,7 @@ def split_content_in_chunks(content: str, model: str) -> List[str]:
 
 
 @traceable(
-    name="filter_content",
-    run_metadata={
-        "method": "llm",
-        "type": "filtering",
-    },
+    name=lambda *args, **kwargs: get_trace_name("filter", kwargs.get("model"))
 )
 def filter_content_by_relevance(
     content: str,
@@ -305,14 +301,9 @@ def filter_content_by_relevance(
 
 
 @traceable(
-    name="filter_content",
-    run_metadata={
-        "method": "nlp",
-        "type": "filtering",
-        "model": "spacy_fr_core_news_lg",
-    },
+    name="filter_nlp",
 )
-def filter_content_with_nlp(content: str) -> Dict[str, str]:
+def filter_content_with_nlp(content: str, model="spacy_v1") -> Dict[str, str]:
     """Filtre le contenu avec SpaCy"""
     try:
         with st.spinner("Chargement du modèle SpaCy..."):
@@ -331,6 +322,9 @@ def filter_content_with_nlp(content: str) -> Dict[str, str]:
         return {"Contenu filtré": f"Erreur lors du filtrage NLP : {str(e)}"}
 
 
+@traceable(
+    name="pre_format",
+)
 def clean_content(contents: Dict[str, str], model: str) -> str:
     """Nettoie le contenu pour ne garder que les informations tarifaires"""
     all_content = "\n\n".join(contents.values())
@@ -391,6 +385,23 @@ def clean_content(contents: Dict[str, str], model: str) -> str:
         return result
 
 
+@traceable(
+    name="format_publicode",
+)
+def format_publicode(contents: Dict[str, str], model: str) -> str:
+    """Convertit le contenu en format Publicode"""
+    # Charger l'exemple de Bordeaux
+    aom_name = "bordeaux"
+    example_tsst = load_example("tsst", aom_name)
+    example_publicode = load_example("publicode", aom_name)
+    prompt = text_to_publicode(
+        example_tsst,
+        example_publicode,
+        contents["content"],
+    )
+    return select_model(model, prompt)
+
+
 def get_extraction_date(siren: str, source_url: str) -> str:
     with engine.connect() as conn:
         result = conn.execute(
@@ -409,24 +420,6 @@ def get_extraction_date(siren: str, source_url: str) -> str:
     if result and result.date_scraping:
         return str(result.date_scraping.strftime("%Y-%m-%d"))
     return ""
-
-
-def extract_all_yaml_blocks(yaml_content: str):
-    """
-    Extrait tous les blocs YAML du texte généré par le LLM.
-    Retourne un dict {nom_fichier: contenu_yaml}
-    """
-    pattern = (
-        r"(tarifs_tickets\.yaml|tarifs_abonnements\.yaml|"
-        r"tarifs_scolaires\.yaml|baremes\.yaml|"
-        r"conditions_eligibilite\.yaml|zones\.yaml|"
-        r"conditions_specifiques\.yaml)[\s:]*```yaml(.*?)```"
-    )
-    matches = re.findall(pattern, yaml_content, re.DOTALL)
-    result = {}
-    for file_name, content in matches:
-        result[file_name] = content.strip()
-    return result
 
 
 def toggle_crawling():
@@ -746,16 +739,10 @@ if selected_aom:
 
             if st.button("Générer les fichiers YAML", key="format_in_yaml"):
                 with st.spinner("Génération des fichiers YAML en cours..."):
-                    # Charger l'exemple de Bordeaux
-                    aom_name = "bordeaux"
-                    example_tsst = load_example("tsst", aom_name)
-                    example_publicode = load_example("publicode", aom_name)
-                    prompt = text_to_publicode(
-                        example_tsst,
-                        example_publicode,
-                        st.session_state.cleaned_content,
+                    yaml_content = format_publicode(
+                        {"content": st.session_state.cleaned_content},
+                        selected_llm_yaml,
                     )
-                    yaml_content = select_model(selected_llm_yaml, prompt)
                     st.session_state.yaml_content = yaml_content
                     st.write(yaml_content)
         else:

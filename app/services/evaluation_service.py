@@ -8,19 +8,34 @@ from langsmith import Client
 load_dotenv()
 
 
+def get_trace_name(base_name: str, model: str = None) -> str:
+    """Génère le nom de la trace avec le modèle si fourni"""
+    if not base_name:
+        raise ValueError("base_name ne peut pas être vide")
+
+    if not model:
+        return base_name
+
+    try:
+        # Extraire juste le nom du modèle sans le chemin complet
+        model_name = model.split("/")[-1].split(":")[0]
+        # Nettoyer le nom du modèle
+        model_name = model_name.replace("-", "_").lower()
+        return f"{base_name}_{model_name}"
+    except (AttributeError, IndexError):
+        # En cas d'erreur, retourner juste le nom de base
+        return base_name
+
+
 class EvaluationService:
     """Service pour gérer les évaluations et le feedback vers LangSmith"""
 
     def __init__(self):
         self.client = Client(
             api_key=os.getenv("LANGCHAIN_API_KEY"),
-            api_url=os.getenv(
-                "LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"
-            ),
+            api_url=os.getenv("LANGCHAIN_ENDPOINT"),
         )
-        self.project_name = os.getenv(
-            "LANGCHAIN_PROJECT", "transport-tarifs-pipeline"
-        )
+        self.project_name = os.getenv("LANGCHAIN_PROJECT")
 
     def create_feedback(
         self,
