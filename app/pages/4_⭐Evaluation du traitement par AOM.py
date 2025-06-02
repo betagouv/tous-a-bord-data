@@ -39,6 +39,13 @@ from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs
 
 
+def store_run_id(run_id: str, step_name: str) -> None:
+    """Stocke le run_id dans la session Streamlit"""
+    import streamlit as st
+
+    st.session_state[f"current_run_{step_name}"] = run_id
+
+
 # Fonction pour lire le fichier bordeaux.txt
 def load_example(type: str, aom_name: str) -> str:
     """Charge le contenu du fichier bordeaux.txt"""
@@ -303,7 +310,7 @@ def filter_content_by_relevance(
 
 
 @traceable(
-    name="filter_nlp",
+    name="filter_nlp", on_end=lambda run: store_run_id(run.id, "filter")
 )
 def filter_content_with_nlp(
     content: str, model: str, siren: str, name: str
@@ -327,7 +334,7 @@ def filter_content_with_nlp(
 
 
 @traceable(
-    name="pre_format",
+    name="pre_format", on_end=lambda run: store_run_id(run.id, "pre_format")
 )
 def pre_format(
     contents: Dict[str, str], model: str, siren: str, name: str
@@ -393,6 +400,7 @@ def pre_format(
 
 @traceable(
     name="format_publicode",
+    on_end=lambda run: store_run_id(run.id, "format_publicode"),
 )
 def format_publicode(content: str, model: str, siren: str, name: str) -> str:
     """Convertit le contenu en format Publicode"""
@@ -426,6 +434,55 @@ def get_extraction_date(siren: str, source_url: str) -> str:
     if result and result.date_scraping:
         return str(result.date_scraping.strftime("%Y-%m-%d"))
     return ""
+
+
+def show_evaluation_interface(step_name: str, content: str) -> None:
+    """Affiche l'interface d'évaluation pour une étape
+
+    Args:
+        step_name: Nom de l'étape (filter, pre_format, format_publicode)
+        content: Contenu à évaluer
+    """
+    st.divider()
+    st.subheader("✨ Évaluation")
+
+    # Score de qualité
+    quality_score = st.select_slider(
+        "Qualité générale",
+        options=[0, 0.25, 0.5, 0.75, 1.0],
+        value=0.5,
+        format_func=lambda x: {
+            0: "Très mauvais",
+            0.25: "Mauvais",
+            0.5: "Moyen",
+            0.75: "Bon",
+            1.0: "Excellent",
+        }[x],
+        key=f"quality_{step_name}",
+    )
+
+    # Correction proposée
+    correction = st.text_area(
+        "Correction proposée (optionnel)",
+        placeholder="Proposez une version corrigée du résultat...",
+        key=f"correction_{step_name}",
+    )
+
+    # Bouton de sauvegarde
+    if st.button("💾 Sauvegarder l'évaluation", key=f"save_{step_name}"):
+        with st.spinner("Sauvegarde de l'évaluation..."):
+            feedback = evaluation_service.create_feedback(
+                run_id=st.session_state.get(f"current_run_{step_name}"),
+                key="quality",
+                score=quality_score,
+                correction={"corrected_output": correction}
+                if correction
+                else None,
+            )
+            if feedback:
+                st.success("✅ Évaluation sauvegardée !")
+            else:
+                st.error("❌ Erreur lors de la sauvegarde")
 
 
 def toggle_crawling():
@@ -674,10 +731,11 @@ if selected_aom:
             st.text_area(
                 title,
                 value=filtered_content,
-                height=300,
+                height=500,
                 disabled=True,
-                key="filtered_content_display",
             )
+            # Ajouter l'interface d'évaluation
+            show_evaluation_interface("filter", filtered_content)
 
         if st.button("Lancer le filtrage", key="filter_content"):
             # Vérification du contenu une seule fois
@@ -723,29 +781,32 @@ if selected_aom:
         )
 
         # Afficher le contenu nettoyé s'il existe
-        if "cleaned_content" in st.session_state:
+        if "pre_formatted_content" in st.session_state:
             st.text_area(
-                "Contenu nettoyé",
-                value=st.session_state.cleaned_content,
+                "Contenu pré-formatté",
+                value=st.session_state.pre_formatted_content,
                 height=300,
                 disabled=True,
             )
+            # Ajouter l'interface d'évaluation
+            show_evaluation_interface(
+                "pre_format", st.session_state.pre_formatted_content
+            )
 
-        if st.button("Lancer le nettoyage", key="pre_format"):
+        if st.button("Lancer le pré-formattage", key="pre_format"):
             if "filtered_contents" in st.session_state:
-                cleaned_content = pre_format(
+                pre_formatted_content = pre_format(
                     st.session_state.filtered_contents,
                     selected_llm_cleaner,
                     n_siren_aom,
                     nom_aom,
                 )
-                st.session_state.cleaned_content = cleaned_content
+                st.session_state.pre_formatted_content = pre_formatted_content
                 st.rerun()
 
     # Step 5: Format in yaml
     with st.expander("📖 Étape 5 : Format in yaml"):
         if "pre_format" in st.session_state:
-            # Sélecteur du modèle LLM pour la génération YAML
             selected_llm_yaml = st.selectbox(
                 "Sélectionner le modèle LLM :",
                 options=list(LLM_MODELS.keys()),
@@ -755,251 +816,14 @@ if selected_aom:
             if st.button("Générer les fichiers YAML", key="format_in_yaml"):
                 with st.spinner("Génération des fichiers YAML en cours..."):
                     yaml_content = format_publicode(
-                        st.session_state.cleaned_content,
+                        st.session_state.pre_formatted_content,
                         selected_llm_yaml,
                         n_siren_aom,
                         nom_aom,
                     )
                     st.session_state.yaml_content = yaml_content
                     st.write(yaml_content)
+                    # Ajouter l'interface d'évaluation
+                    show_evaluation_interface("format_publicode", yaml_content)
         else:
             st.warning("Veuillez d'abord nettoyer le contenu")
-
-    # Step 6: Évaluation HITL
-    with st.expander("📊 Étape 6 : Évaluation Human-in-the-Loop"):
-        st.subheader("Évaluation de la qualité du traitement")
-        st.markdown(
-            """
-        Cette section permet d'évaluer la qualité des résultats obtenus 
-        pour améliorer continuellement le pipeline RAG. Vos évaluations 
-        sont sauvegardées dans LangSmith pour analyser les performances 
-        et détecter les régressions.
-        """
-        )
-
-        # Vérifier s'il y a du contenu à évaluer
-        has_content_to_evaluate = any(
-            [
-                st.session_state.get("filtered_contents"),
-                st.session_state.get("cleaned_content"),
-                st.session_state.get("yaml_content"),
-            ]
-        )
-
-        if not has_content_to_evaluate:
-            st.info(
-                "Exécutez d'abord les étapes précédentes pour avoir du "
-                "contenu à évaluer."
-            )
-        else:
-            # Sélection de l'étape à évaluer
-            evaluation_step = st.selectbox(
-                "Étape à évaluer :",
-                options=[
-                    "Filtrage du contenu",
-                    "Nettoyage du contenu",
-                    "Génération YAML",
-                ],
-                help=(
-                    "Choisissez quelle étape du pipeline vous souhaitez "
-                    "évaluer"
-                ),
-            )
-
-            # Affichage du contenu selon l'étape sélectionnée
-            content_to_evaluate = ""
-            step_key = ""
-
-            if (
-                evaluation_step == "Filtrage du contenu"
-                and "filtered_contents" in st.session_state
-            ):
-                content_to_evaluate = st.session_state.filtered_contents[
-                    "Contenu filtré"
-                ]
-                step_key = "filtering"
-                st.text_area(
-                    "Contenu filtré à évaluer :",
-                    value=content_to_evaluate[:2000] + "..."
-                    if len(content_to_evaluate) > 2000
-                    else content_to_evaluate,
-                    height=200,
-                    disabled=True,
-                )
-
-            elif (
-                evaluation_step == "Nettoyage du contenu"
-                and "cleaned_content" in st.session_state
-            ):
-                content_to_evaluate = st.session_state.cleaned_content
-                step_key = "cleaning"
-                st.text_area(
-                    "Contenu nettoyé à évaluer :",
-                    value=content_to_evaluate[:2000] + "..."
-                    if len(content_to_evaluate) > 2000
-                    else content_to_evaluate,
-                    height=200,
-                    disabled=True,
-                )
-
-            elif (
-                evaluation_step == "Génération YAML"
-                and "yaml_content" in st.session_state
-            ):
-                content_to_evaluate = st.session_state.yaml_content
-                step_key = "yaml_generation"
-                st.text_area(
-                    "Contenu YAML à évaluer :",
-                    value=content_to_evaluate[:2000] + "..."
-                    if len(content_to_evaluate) > 2000
-                    else content_to_evaluate,
-                    height=200,
-                    disabled=True,
-                )
-
-            if content_to_evaluate:
-                st.markdown("---")
-
-                # Interface d'évaluation
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    quality_score = st.select_slider(
-                        "Qualité générale",
-                        options=[0, 0.25, 0.5, 0.75, 1.0],
-                        value=0.5,
-                        format_func=lambda x: {
-                            0: "Très mauvais",
-                            0.25: "Mauvais",
-                            0.5: "Moyen",
-                            0.75: "Bon",
-                            1.0: "Excellent",
-                        }[x],
-                        key=f"eval_quality_{step_key}_{selected_aom}",
-                    )
-
-                with col2:
-                    relevance_score = st.select_slider(
-                        "Pertinence",
-                        options=[0, 0.25, 0.5, 0.75, 1.0],
-                        value=0.5,
-                        format_func=lambda x: {
-                            0: "Non pertinent",
-                            0.25: "Peu pertinent",
-                            0.5: "Moyennement pertinent",
-                            0.75: "Pertinent",
-                            1.0: "Très pertinent",
-                        }[x],
-                        key=f"eval_relevance_{step_key}_{selected_aom}",
-                    )
-
-                with col3:
-                    accuracy_score = st.select_slider(
-                        "Précision",
-                        options=[0, 0.25, 0.5, 0.75, 1.0],
-                        value=0.5,
-                        format_func=lambda x: {
-                            0: "Très imprécis",
-                            0.25: "Imprécis",
-                            0.5: "Moyennement précis",
-                            0.75: "Précis",
-                            1.0: "Très précis",
-                        }[x],
-                        key=f"eval_accuracy_{step_key}_{selected_aom}",
-                    )
-
-                # Commentaires et corrections
-                comment = st.text_area(
-                    "Commentaires (optionnel)",
-                    placeholder=(
-                        "Décrivez les problèmes identifiés, les points "
-                        "positifs, ou les améliorations possibles..."
-                    ),
-                    key=f"eval_comment_{step_key}_{selected_aom}",
-                )
-
-                correction = st.text_area(
-                    "Correction proposée (optionnel)",
-                    placeholder=(
-                        "Proposez une version corrigée ou améliorée du "
-                        "résultat..."
-                    ),
-                    key=f"eval_correction_{step_key}_{selected_aom}",
-                )
-
-                # Métadonnées de l'évaluation
-                evaluation_metadata = {
-                    "aom_siren": selected_aom,
-                    "aom_name": nom_aom,
-                    "evaluation_step": evaluation_step,
-                    "step_key": step_key,
-                    "content_length": len(content_to_evaluate),
-                    "evaluation_date": datetime.now().isoformat(),
-                }
-
-                # Bouton de soumission
-                if st.button(
-                    f"💾 Sauvegarder l'évaluation",
-                    key=f"submit_eval_{step_key}_{selected_aom}",
-                ):
-                    with st.spinner("Sauvegarde de l'évaluation..."):
-                        try:
-                            # Créer un run fictif pour cette évaluation
-                            # si nécessaire
-                            # En pratique, cela devrait être lié aux vrais
-                            # runs LLM
-
-                            # Pour l'instant, on simule un run_id
-                            # Dans une implémentation complète, on
-                            # récupérerait le vrai run_id depuis le contexte
-                            # LangSmith des appels LLM précédents
-
-                            # Créer les feedbacks avec métadonnées
-                            feedback_ids = []
-
-                            # Note: Dans une implémentation complète, il
-                            # faudrait récupérer le vrai run_id depuis le
-                            # contexte LangSmith
-                            # Pour l'instant, on affiche juste un message
-                            # d'information
-
-                            st.success("✅ Évaluation enregistrée localement !")
-                            st.info(
-                                """
-                            📝 **Note technique :** Pour une intégration 
-                            complète avec LangSmith, il faut récupérer les 
-                            run_id des appels LLM précédents. Cette 
-                            fonctionnalité sera activée une fois que tous 
-                            les appels LLM passeront par les décorateurs 
-                            @traceable.
-                            """
-                            )
-
-                            # Afficher les scores pour confirmation
-                            st.write("**Scores enregistrés :**")
-                            st.write(f"- Qualité : {quality_score}")
-                            st.write(f"- Pertinence : {relevance_score}")
-                            st.write(f"- Précision : {accuracy_score}")
-                            if comment:
-                                st.write(f"- Commentaire : {comment}")
-                            if correction:
-                                st.write(f"- Correction proposée : Oui")
-
-                        except Exception as e:
-                            st.error(
-                                f"❌ Erreur lors de la sauvegarde : {str(e)}"
-                            )
-
-            else:
-                st.warning(
-                    f"Aucun contenu disponible pour l'étape "
-                    f"'{evaluation_step}'. Exécutez d'abord cette étape."
-                )
-
-        # Lien vers la page d'évaluation dédiée
-        st.markdown("---")
-        st.info(
-            "💡 **Conseil :** Utilisez la page dédiée '📊 Évaluation HITL' "
-            "pour une interface d'évaluation plus complète et l'analyse "
-            "des tendances."
-        )
