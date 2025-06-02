@@ -1,2 +1,0 @@
-openfisca-france>=41.0.0
-openfisca-france-local>=41.0.0 

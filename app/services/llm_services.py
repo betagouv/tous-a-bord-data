@@ -10,6 +10,11 @@ from openai import OpenAI
 MAX_TOKEN_OUTPUT = 4000
 
 
+def get_model_metadata(model_name: str, platform: str) -> dict:
+    """Crée les métadonnées pour le tracking LangSmith"""
+    return f"model: {model_name}, platform: {platform}"
+
+
 # OLLAMA with small models
 def ensure_ollama_host():
     if "OLLAMA_HOST" not in os.environ:

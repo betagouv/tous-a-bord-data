@@ -16,6 +16,10 @@ services:
       - SCALEWAY_API_URL=${SCALEWAY_API_URL}
       - SCALEWAY_API_KEY=${SCALEWAY_API_KEY}
       - STREAMLIT_SERVER_RUN_ON_SAVE=true
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT}
+      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT}
     depends_on:
       postgres:
         condition: service_healthy
