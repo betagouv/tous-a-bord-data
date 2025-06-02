@@ -31,8 +31,10 @@ from services.llm_services import (
     call_scaleway,
 )
 from services.nlp_services import (
+    extract_data_providers,
     extract_markdown_text,
-    filter_text_with_spacy,
+    extract_tags,
+    filter_transport_fare,
     load_spacy_model,
     normalize_text,
 )
@@ -282,9 +284,13 @@ def filter_content_with_nlp(
 
         with st.spinner("Chargement du modèle SpaCy..."):
             nlp = load_spacy_model()
+            st.write("loading spacy model done")
             raw_text = extract_markdown_text(content)
+            st.write("extracting markdown text done")
             paragraphs = normalize_text(raw_text, nlp)
-            paragraphs_filtered, _ = filter_text_with_spacy(paragraphs, nlp)
+            st.write("normalize_text done")
+            paragraphs_filtered, _ = filter_transport_fare(paragraphs, nlp)
+            st.write("filtering transport fare done")
             filtered = "\n\n".join(paragraphs_filtered)
 
             if filtered:
@@ -868,14 +874,28 @@ if selected_aom:
                     use_container_width=True,
                     disabled=not is_previous_step_complete,
                 ):
-                    st.info(
-                        "La fonction de formatage en tags sera implémentée ultérieurement"
-                    )
-                    # Placeholder pour le futur contenu tag
-                    if "tag_content" not in st.session_state:
-                        st.session_state.tag_content = (
-                            "Format tag à implémenter"
+                    with st.spinner("Génération des tags en cours..."):
+                        # Charger le modèle SpaCy
+                        nlp = load_spacy_model()
+                        # Extraire les tags et data providers
+                        tags = extract_tags(
+                            st.session_state.pre_formatted_content, nlp
                         )
+                        providers = extract_data_providers(
+                            st.session_state.pre_formatted_content, nlp
+                        )
+
+                        # Formater le résultat
+                        formatted_tags = "\n".join(
+                            [f"- {tag}" for tag in tags]
+                        )
+                        formatted_providers = "\n".join(
+                            [f"- {provider}" for provider in providers]
+                        )
+
+                        st.write(formatted_tags)
+                        st.write(formatted_providers)
+                        st.rerun()
 
                 # Afficher le contenu tag s'il existe
                 if "tag_content" in st.session_state:

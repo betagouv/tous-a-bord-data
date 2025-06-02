@@ -1,4 +1,5 @@
 import re
+from typing import Dict, List
 
 import markdown
 import spacy
@@ -6,9 +7,9 @@ import spacy.util
 import streamlit as st
 from bs4 import BeautifulSoup
 from constants.entites_eligibilite import ENTITES
+from constants.tag_dp_mapping import TAG_DP_MAPPING
 from constants.tokens_eligibilite import TOKENS_ELIGIBILITE
 from spacy.matcher import Matcher, PhraseMatcher
-from spacy.tokens import Span
 
 TOKENS_ELIGIBILITE = [token.lower() for token in TOKENS_ELIGIBILITE]
 
@@ -26,186 +27,192 @@ def extract_markdown_text(markdown_text):
 
 
 def create_transport_fare_matcher(nlp):
-    """Crée et configure le composant transport_fare_matcher"""
+    """Crée un matcher pour les critères de transport"""
+    # Configure the phrase matcher for the eligibility criteria
+    phrase_matcher = PhraseMatcher(nlp.vocab, attr="LEMMA")
+    # Add the patterns for the eligibility terms
+    patterns = [nlp(text) for text in TOKENS_ELIGIBILITE]
+    phrase_matcher.add("CRITERE_ELIGIBILITE", patterns)
 
-    @spacy.Language.component("transport_fare_matcher")
-    def matcher(doc):
-        # Use the phrase matcher
-        matches = nlp.user_data["phrase_matcher"](doc)
-        for match_id, start, end in matches:
-            # Create a span with a custom label
-            span = Span(doc, start, end, label="CRITERE_ELIGIBILITE")
-            doc.ents = spacy.util.filter_spans(list(doc.ents) + [span])
-        # Use the regex matcher
-        matches = nlp.user_data["matcher"](doc)
-        for match_id, start, end in matches:
-            # Get the name of the pattern
-            rule_id = nlp.vocab.strings[match_id]
-            span = Span(doc, start, end, label=rule_id)
-            doc.ents = spacy.util.filter_spans(list(doc.ents) + [span])
-        # Recognize specific entities
-        for token in doc:
-            if token.text in ENTITES:
-                span = Span(
-                    doc, token.i, token.i + 1, label="ACRONYME_ELIGIBILITE"
-                )
-                doc.ents = spacy.util.filter_spans(list(doc.ents) + [span])
-        return doc
+    # Configure the regex matcher for the patterns
+    matcher = Matcher(nlp.vocab)
+    # Patterns for ages
+    matcher.add(
+        "AGE",
+        [
+            # Detect : "18 ans", "25 ans", etc.
+            [{"TEXT": {"REGEX": r"\d+"}}, {"LOWER": "ans"}],
+            # Detect : "18 ans et plus", "25 ans et plus", etc.
+            [
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+                {"LOWER": "et"},
+                {"LOWER": "plus"},
+            ],
+            # Detect : "moins de 18 ans"
+            [
+                {"LOWER": "moins"},
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "plus de 18 ans"
+            [
+                {"LOWER": "plus"},
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "entre 18 et 25 ans"
+            [
+                {"LOWER": "entre"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "et"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "de 18 à 25 ans"
+            [
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "à"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "à partir de 18 ans"
+            [
+                {"LOWER": "à"},
+                {"LOWER": "partir"},
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "18/25 ans"
+            [
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"TEXT": "/"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+        ],
+    )
+    # Patterns pour montants et pourcentages
+    matcher.add(
+        "TARIF",
+        [
+            # Detect : "10€"
+            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "€"}],
+            # Detect : "10 euros"
+            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "euros"}],
+            # Detect : "10 %"
+            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "%"}],
+            # Detect : "10 €/an"
+            [
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"TEXT": "€"},
+                {"LOWER": "/"},
+                {"LOWER": {"IN": ["an", "mois", "jour"]}},
+            ],
+            # Detect : "10 euros/an"
+            [
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"TEXT": "euros"},
+                {"LOWER": "par"},
+                {"LOWER": {"IN": ["an", "mois", "jour"]}},
+            ],
+        ],
+    )
+    # Patterns pour quotient familial
+    matcher.add(
+        "QF",
+        [
+            # "quotient familial inférieur à 1",
+            # "quotient familial supérieur à 1"
+            [
+                {"LOWER": {"IN": ["qf", "quotient familial"]}},
+                {
+                    "LOWER": {
+                        "IN": [
+                            "inférieur",
+                            "supérieur",
+                            ">",
+                            "<",
+                            ">=",
+                            "<=",
+                        ]
+                    }
+                },
+                {"LOWER": "à"},
+                {"TEXT": {"REGEX": r"\d+"}},
+            ],
+            # Detect : "QF de 1 à 2"
+            [
+                {"LOWER": {"IN": ["qf", "quotient familial"]}},
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "à"},
+                {"TEXT": {"REGEX": r"\d+"}},
+            ],
+            # Detect : "QF entre 1 et 2"
+            [
+                {"LOWER": {"IN": ["qf", "quotient familial"]}},
+                {"LOWER": "entre"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "et"},
+                {"TEXT": {"REGEX": r"\d+"}},
+            ],
+        ],
+    )
 
-    return matcher
+    return phrase_matcher, matcher
+
+
+def extract_transport_fare(text: str, nlp) -> List[Dict[str, str]]:
+    """Extrait les critères de transport du texte"""
+    # Créer les matchers
+    phrase_matcher, matcher = create_transport_fare_matcher(nlp)
+
+    # Traiter le texte
+    doc = nlp(text)
+
+    # Initialiser la liste des résultats
+    results = []
+
+    # Utiliser le phrase matcher
+    matches = phrase_matcher(doc)
+    for match_id, start, end in matches:
+        span = doc[start:end]
+        results.append(
+            {
+                "type": "CRITERE_ELIGIBILITE",
+                "text": span.text,
+                "lemma": span.lemma_,
+            }
+        )
+
+    # Utiliser le regex matcher
+    matches = matcher(doc)
+    for match_id, start, end in matches:
+        rule_id = nlp.vocab.strings[match_id]
+        span = doc[start:end]
+        results.append({"type": rule_id, "text": span.text})
+
+    # Reconnaître les entités spécifiques
+    for token in doc:
+        if token.text in ENTITES:
+            results.append(
+                {"type": "ACRONYME_ELIGIBILITE", "text": token.text}
+            )
+
+    return results
 
 
 # Load the fr_core_news_lg model
 @st.cache_resource
 def load_spacy_model():
-    """Charge le modèle SpaCy et configure les composants personnalisés"""
+    """Charge le modèle SpaCy de base"""
     try:
         nlp = spacy.load("fr_core_news_lg")
-        # Initialiser user_data s'il n'existe pas déjà
-        if not hasattr(nlp, "user_data"):
-            nlp.user_data = {}
-        # Configure the phrase matcher for the eligibility criteria
-        phrase_matcher = PhraseMatcher(nlp.vocab, attr="LEMMA")
-        # Add the patterns for the eligibility terms
-        patterns = [nlp(text) for text in TOKENS_ELIGIBILITE]
-        phrase_matcher.add("CRITERE_ELIGIBILITE", patterns)
-        # Configure the regex matcher for the patterns
-        matcher = Matcher(nlp.vocab)
-        # Patterns for ages
-        matcher.add(
-            "AGE",
-            [
-                # Detect : "18 ans", "25 ans", etc.
-                [{"TEXT": {"REGEX": r"\d+"}}, {"LOWER": "ans"}],
-                # Detect : "18 ans et plus", "25 ans et plus", etc.
-                [
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "ans"},
-                    {"LOWER": "et"},
-                    {"LOWER": "plus"},
-                ],
-                # Detect : "moins de 18 ans"
-                [
-                    {"LOWER": "moins"},
-                    {"LOWER": "de"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "ans"},
-                ],
-                # Detect : "plus de 18 ans"
-                [
-                    {"LOWER": "plus"},
-                    {"LOWER": "de"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "ans"},
-                ],
-                # Detect : "entre 18 et 25 ans"
-                [
-                    {"LOWER": "entre"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "et"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "ans"},
-                ],
-                # Detect : "de 18 à 25 ans"
-                [
-                    {"LOWER": "de"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "à"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "ans"},
-                ],
-                # Detect : "à partir de 18 ans"
-                [
-                    {"LOWER": "à"},
-                    {"LOWER": "partir"},
-                    {"LOWER": "de"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "ans"},
-                ],
-                # Detect : "18/25 ans"
-                [
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"TEXT": "/"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "ans"},
-                ],
-            ],
-        )
-        # Patterns pour montants et pourcentages
-        matcher.add(
-            "TARIF",
-            [
-                # Detect : "10€"
-                [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "€"}],
-                # Detect : "10 euros"
-                [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "euros"}],
-                # Detect : "10 %"
-                [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "%"}],
-                # Detect : "10 €/an"
-                [
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"TEXT": "€"},
-                    {"LOWER": "/"},
-                    {"LOWER": {"IN": ["an", "mois", "jour"]}},
-                ],
-                # Detect : "10 euros/an"
-                [
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"TEXT": "euros"},
-                    {"LOWER": "par"},
-                    {"LOWER": {"IN": ["an", "mois", "jour"]}},
-                ],
-            ],
-        )
-        # Patterns pour quotient familial
-        matcher.add(
-            "QF",
-            [
-                # "quotient familial inférieur à 1",
-                # "quotient familial supérieur à 1"
-                [
-                    {"LOWER": {"IN": ["qf", "quotient familial"]}},
-                    {
-                        "LOWER": {
-                            "IN": [
-                                "inférieur",
-                                "supérieur",
-                                ">",
-                                "<",
-                                ">=",
-                                "<=",
-                            ]
-                        }
-                    },
-                    {"LOWER": "à"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                ],
-                # Detect : "QF de 1 à 2"
-                [
-                    {"LOWER": {"IN": ["qf", "quotient familial"]}},
-                    {"LOWER": "de"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "à"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                ],
-                # Detect : "QF entre 1 et 2"
-                [
-                    {"LOWER": {"IN": ["qf", "quotient familial"]}},
-                    {"LOWER": "entre"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                    {"LOWER": "et"},
-                    {"TEXT": {"REGEX": r"\d+"}},
-                ],
-            ],
-        )
-        # Add the matcher and the phrase_matcher to the pipeline components
-        nlp.user_data["matcher"] = matcher
-        nlp.user_data["phrase_matcher"] = phrase_matcher
-
-        # Create and add the eligibilite_matcher component
-        # flake8: noqa: F841
-        transport_fare_matcher = create_transport_fare_matcher(nlp)
-        nlp.add_pipe("transport_fare_matcher", last=True)
         return nlp
     except OSError:
         st.error("Installation en cours...")
@@ -248,37 +255,48 @@ def normalize_text(raw_text, nlp):
     return paragraphs
 
 
-def phrase_contains_criterion(sent, nlp):
-    """Use SpaCy's capabilities to detect eligibility criteria in a sentence"""
-    # Analyze the sentence with SpaCy
-    doc = nlp(sent.text if hasattr(sent, "text") else sent)
-    # Check the recognized entities
-    for ent in doc.ents:
-        if ent.label_ in [
-            "CRITERE_ELIGIBILITE",
-            "AGE",
-            "TARIF",
-            "QF",
-            "ACRONYME_ELIGIBILITE",
-        ]:
-            return True
-    return False
-
-
-def filter_text_with_spacy(paragraphs, nlp):
+def filter_transport_fare(paragraphs, nlp):
     """Filter paragraphs to keep only those with eligibility criteria"""
     filtered_paragraphs = []
     relevant_sentences = []
+
+    # Créer les matchers une seule fois
+    phrase_matcher, matcher = create_transport_fare_matcher(nlp)
+
     for paragraph in paragraphs:
         doc = nlp(paragraph)
-        # Check each sentence in the paragraph
-        contains_criterion = False
-        for sent in doc.sents:
-            if phrase_contains_criterion(sent, nlp):
-                contains_criterion = True
-                relevant_sentences.append(sent.text)
-        if contains_criterion:
+
+        # Chercher les critères dans tout le paragraphe
+        matches_phrase = phrase_matcher(doc)
+        matches_regex = matcher(doc)
+        matches_entites = any(token.text in ENTITES for token in doc)
+
+        # Si on trouve au moins un match, le paragraphe est pertinent
+        if matches_phrase or matches_regex or matches_entites:
             filtered_paragraphs.append(paragraph)
+            # Ajouter les phrases qui contiennent les matches
+            for sent in doc.sents:
+                sent_start = sent.start
+                sent_end = sent.end
+
+                # Vérifier si la phrase contient un match du phrase_matcher
+                has_phrase_match = any(
+                    sent_start <= start < sent_end
+                    for _, start, _ in matches_phrase
+                )
+
+                # Vérifier si la phrase contient un match du regex_matcher
+                has_regex_match = any(
+                    sent_start <= start < sent_end
+                    for _, start, _ in matches_regex
+                )
+
+                # Vérifier si la phrase contient une entité
+                has_entity = any(token.text in ENTITES for token in sent)
+
+                if has_phrase_match or has_regex_match or has_entity:
+                    relevant_sentences.append(sent.text)
+
     return filtered_paragraphs, relevant_sentences
 
 
@@ -286,3 +304,75 @@ def count_tokens(text, nlp):
     """Compte le nombre de tokens dans un texte en utilisant SpaCy"""
     doc = nlp(text)
     return len(doc)
+
+
+def create_tag_matcher(nlp):
+    """Crée un matcher uniquement pour les tags"""
+    # Configure the phrase matcher for tags
+    tag_matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+
+    # Add patterns for each token in TAG_DP_MAPPING
+    for token in TAG_DP_MAPPING.keys():
+        pattern = nlp(token.lower())
+        tag_info = TAG_DP_MAPPING[token]
+        # Use the tag as the pattern name
+        tag_matcher.add(tag_info["tag"], [pattern])
+
+    return tag_matcher
+
+
+def create_dp_matcher(nlp):
+    """Crée un matcher uniquement pour les data providers"""
+    # Configure the phrase matcher for data providers
+    dp_matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+
+    # Add patterns for each token in TAG_DP_MAPPING
+    for token in TAG_DP_MAPPING.keys():
+        pattern = nlp(token.lower())
+        dp_info = TAG_DP_MAPPING[token]
+        # Use the provider as the pattern name
+        dp_matcher.add(dp_info["fournisseur"], [pattern])
+
+    return dp_matcher
+
+
+def extract_tags(text: str, nlp) -> List[str]:
+    """Extrait uniquement les tags du texte"""
+    # Créer le matcher
+    tag_matcher = create_tag_matcher(nlp)
+
+    # Traiter le texte
+    doc = nlp(text)
+
+    # Trouver les correspondances
+    matches = tag_matcher(doc)
+
+    # Collecter les tags uniques
+    tags = []
+    for match_id, start, end in matches:
+        tag_name = nlp.vocab.strings[match_id]
+        if tag_name not in tags:
+            tags.append(tag_name)
+
+    return sorted(tags)
+
+
+def extract_data_providers(text: str, nlp) -> List[str]:
+    """Extrait uniquement les fournisseurs de données du texte"""
+    # Créer le matcher
+    dp_matcher = create_dp_matcher(nlp)
+
+    # Traiter le texte
+    doc = nlp(text)
+
+    # Trouver les correspondances
+    matches = dp_matcher(doc)
+
+    # Collecter les fournisseurs uniques
+    providers = []
+    for match_id, start, end in matches:
+        provider_name = nlp.vocab.strings[match_id]
+        if provider_name not in providers:
+            providers.append(provider_name)
+
+    return sorted(providers)
