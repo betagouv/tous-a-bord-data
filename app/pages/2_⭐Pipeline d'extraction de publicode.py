@@ -33,7 +33,6 @@ from services.llm_services import (
     call_scaleway,
 )
 from services.nlp_services import (
-    create_mapping_matcher,
     extract_markdown_text,
     filter_transport_fare,
     load_spacy_model,
@@ -383,58 +382,6 @@ def format_publicode(content: str, model: str, siren: str, name: str) -> str:
     return select_model(model, prompt)
 
 
-@traceable
-def format_tags(text: str, nlp) -> List[str]:
-    """Extrait les tags uniques à partir du texte"""
-    run = get_current_run_tree()
-    st.session_state.run_ids["format_tags"] = run.id
-    # Créer le matcher
-    matcher = create_mapping_matcher(nlp)
-
-    # Traiter le texte
-    doc = nlp(text)
-
-    # Trouver les correspondances et récupérer les tags uniques
-    matches = matcher(doc)
-    tags = set()
-    for _, start, end in matches:
-        token = doc[start:end].text.lower()  # Normaliser en minuscules
-        # Chercher la clé correspondante dans le mapping
-        for mapping_key, mapping_value in TAG_DP_MAPPING.items():
-            if mapping_key.lower() == token and mapping_value.get("tag"):
-                tags.add(mapping_value["tag"])
-                break
-
-    return sorted(list(filter(None, tags)))
-
-
-@traceable
-def format_data_providers(text: str, nlp) -> List[str]:
-    """Extrait les fournisseurs de données uniques à partir du texte"""
-    run = get_current_run_tree()
-    st.session_state.run_ids["format_data_providers"] = run.id
-    # Créer le matcher
-    matcher = create_mapping_matcher(nlp)
-
-    # Traiter le texte
-    doc = nlp(text)
-
-    # Trouver les correspondances et récupérer les fournisseurs uniques
-    matches = matcher(doc)
-    providers = set()
-    for _, start, end in matches:
-        token = doc[start:end].text.lower()  # Normaliser en minuscules
-        # Chercher la clé correspondante dans le mapping
-        for mapping_key, mapping_value in TAG_DP_MAPPING.items():
-            if mapping_key.lower() == token and mapping_value.get(
-                "fournisseur"
-            ):
-                providers.add(mapping_value["fournisseur"])
-                break
-
-    return sorted(list(filter(None, providers)))
-
-
 def show_evaluation_interface(step_name: str, content: str) -> None:
     """Affiche l'interface d'évaluation pour une étape"""
     st.divider()
@@ -527,8 +474,10 @@ selected_aom = st.selectbox(
         st.session_state.pop("raw_scraped_content", None),
         st.session_state.pop("scraped_content", None),
         st.session_state.pop("filtered_contents", None),
-        st.session_state.pop("cleaned_content", None),
-        st.session_state.pop("yaml_content", None),
+        st.session_state.pop("pre_formatted_content", None),
+        st.session_state.pop("publicode", None),
+        st.session_state.pop("tags", None),
+        st.session_state.pop("netext_content", None),
         st.session_state.pop("run_ids", {}),  # Réinitialiser les run_ids
     ),
 )
@@ -798,12 +747,8 @@ if selected_aom:
                 st.session_state.pre_formatted_content = pre_formatted_content
                 st.rerun()
 
-    # Step 5: Format in yaml
-    st.subheader("📖 Étape 5 : Formatage")
-
-    # Utiliser le conteneur pour plus de largeur
-    with st.container():
-        # Vérifier si l'étape précédente est complétée
+    # Step 5: Formatage en publicode
+    with st.expander("Étape 5 : Formatage en publicode", expanded=True):
         is_previous_step_complete = (
             "pre_formatted_content" in st.session_state
             and st.session_state.pre_formatted_content
@@ -813,85 +758,33 @@ if selected_aom:
             st.warning(
                 "⚠️ Veuillez d'abord compléter l'étape de pré-formatage"
             )
+        # Sélection du modèle LLM
+        selected_llm_yaml = st.selectbox(
+            "Sélectionner le modèle LLM :",
+            options=list(LLM_MODELS.keys()),
+            key="selected_llm_yaml",
+            disabled=not is_previous_step_complete,
+        )
+        if st.button(
+            "Générer les fichiers au format Publicode",
+            key="format_in_yaml",
+            use_container_width=True,
+            disabled=not is_previous_step_complete,
+        ):
+            with st.spinner("Génération du format Publicode en cours..."):
+                publicode = format_publicode(
+                    st.session_state.pre_formatted_content,
+                    selected_llm_yaml,
+                    n_siren_aom,
+                    nom_aom,
+                )
+                st.session_state.publicode = publicode
+                st.rerun()
 
-        with st.expander("Format Publicode", expanded=True):
-            # Sélection du modèle LLM
-            selected_llm_yaml = st.selectbox(
-                "Sélectionner le modèle LLM :",
-                options=list(LLM_MODELS.keys()),
-                key="selected_llm_yaml",
-                disabled=not is_previous_step_complete,
+        # Afficher le contenu YAML s'il existe
+        if "publicode" in st.session_state:
+            st.write(st.session_state.publicode)
+            # Ajouter l'interface d'évaluation
+            show_evaluation_interface(
+                "format_publicode", st.session_state.publicode
             )
-            if st.button(
-                "Générer Publicode",
-                key="format_in_yaml",
-                use_container_width=True,
-                disabled=not is_previous_step_complete,
-            ):
-                with st.spinner("Génération du format Publicode en cours..."):
-                    yaml_content = format_publicode(
-                        st.session_state.pre_formatted_content,
-                        selected_llm_yaml,
-                        n_siren_aom,
-                        nom_aom,
-                    )
-                    st.session_state.yaml_content = yaml_content
-                    st.rerun()
-
-            # Afficher le contenu YAML s'il existe
-            if "yaml_content" in st.session_state:
-                st.write(st.session_state.yaml_content)
-                # Ajouter l'interface d'évaluation
-                show_evaluation_interface(
-                    "format_publicode", st.session_state.yaml_content
-                )
-
-        with st.expander("Format Tag", expanded=True):
-            if st.button(
-                "Générer Tags",
-                key="format_in_tags",
-                use_container_width=True,
-                disabled=not is_previous_step_complete,
-            ):
-                with st.spinner("Génération des tags en cours..."):
-                    # Charger le modèle SpaCy
-                    nlp = load_spacy_model()
-                    # Extraire les tags et data providers
-                    st.session_state.tags = format_tags(
-                        st.session_state.pre_formatted_content, nlp
-                    )
-                    st.rerun()
-
-            # Afficher les tags s'ils existent dans la session
-            if "tags" in st.session_state:
-                st.session_state.tags = st_tags(
-                    label="# Tags détectés :",
-                    text="",
-                    value=st.session_state.tags,
-                    key="tag_display",
-                )
-                show_evaluation_interface("format_tags", st.session_state.tags)
-
-        with st.expander("Format Netext", expanded=True):
-            if st.button(
-                "Générer Netext",
-                key="format_in_netext",
-                use_container_width=True,
-                disabled=not is_previous_step_complete,
-            ):
-                st.info(
-                    "La fonction de formatage en Netext sera implémentée ultérieurement"
-                )
-                # Placeholder pour le futur contenu netext
-                if "netext_content" not in st.session_state:
-                    st.session_state.netext_content = (
-                        "Format Netext à implémenter"
-                    )
-
-            # Afficher le contenu netext s'il existe
-            if "netext_content" in st.session_state:
-                st.write(st.session_state.netext_content)
-                # Ajouter l'interface d'évaluation
-                show_evaluation_interface(
-                    "format_netext", st.session_state.netext_content
-                )

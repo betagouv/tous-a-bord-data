@@ -307,8 +307,14 @@ def count_tokens(text, nlp):
 
 
 def create_mapping_matcher(nlp):
-    """Crée un matcher pour détecter les tokens"""
-    matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
-    patterns = {token: nlp(token.lower()) for token in TAG_DP_MAPPING.keys()}
+    """Crée un matcher pour détecter les tokens en utilisant la lemmisation"""
+    matcher = PhraseMatcher(nlp.vocab, attr="LEMMA")
+    # Créer les patterns en utilisant les lemmes
+    patterns = {}
+    for token in TAG_DP_MAPPING.keys():
+        # Traiter le token avec SpaCy pour obtenir le lemme
+        doc = nlp(token.lower())
+        # Utiliser le lemme du premier token
+        patterns[token] = doc
     matcher.add("TOKEN", list(patterns.values()))
     return matcher
