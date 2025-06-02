@@ -24,6 +24,7 @@ from services.evaluation_service import evaluation_service
 
 # Nouveaux imports
 from services.llm_services import (
+    LLM_MODELS,
     MAX_TOKEN_OUTPUT,
     call_anthropic,
     call_ollama,
@@ -72,50 +73,6 @@ engine = create_engine(get_postgres_cs())
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Constantes pour les modèles LLM disponibles
-LLM_MODELS = {
-    "Llama 3 (Ollama)": {
-        "name": "llama3:8b",
-        "max_tokens": 128000,
-    },
-    "Llama 3.3 70B (Scaleway)": {
-        "name": "llama-3.3-70b-instruct",
-        "max_tokens": 131000,
-    },
-    "Llama 3.1 8B (Scaleway)": {
-        "name": "llama-3.1-8b-instruct",
-        "max_tokens": 128000,
-    },
-    "Mistral Nemo (Scaleway)": {
-        "name": "mistral-nemo-instruct-2407",
-        "max_tokens": 128000,
-    },
-    "Qwen 2.5 32B (Scaleway)": {
-        "name": "qwen2.5-coder-32b-instruct",
-        "max_tokens": 32000,
-    },
-    # not really supported yet
-    # "DeepSeek r1 (Scaleway)": {
-    #     "name": "deepseek-r1",
-    #     "max_tokens": 20000,
-    # },
-    "DeepSeek r1 distill (Scaleway)": {
-        "name": "deepseek-r1-distill-llama-70b",
-        "max_tokens": 32000,
-    },
-    "Claude 3 Haiku (Anthropic)": {
-        "name": "claude-3-5-haiku-latest",
-        "max_tokens": 100000,
-    },
-    # too expansive
-    "Claude 3 Sonnet (Anthropic)": {
-        "name": "claude-3-5-sonnet-latest",
-        "max_tokens": 200000,
-    },
-    "Claude 4 Sonnet (Anthropic)": {
-        "name": "claude-sonnet-4-20250514",
-        "max_tokens": 200000,
-    },
-}
 
 
 def select_model(model_name: str, prompt: str) -> str:
