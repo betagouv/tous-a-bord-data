@@ -31,6 +31,20 @@ def load_spacy_model():
         return spacy.load("fr_core_news_lg")
 
 
+@st.cache_data
+def get_cached_mapping_lemmas():
+    """Cache le mapping lemmatisé pour éviter de le recalculer"""
+    nlp = load_spacy_model()
+    tag_dp_mapping_lemmas = {}
+    for k, v in TAG_DP_MAPPING.items():
+        if k and v:
+            doc_key = nlp(k.lower().replace("'", "'"))
+            lemmas = [token.lemma_.lower() for token in doc_key]
+            lemma_key = " ".join(lemmas)
+            tag_dp_mapping_lemmas[lemma_key] = v
+    return tag_dp_mapping_lemmas
+
+
 def extract_markdown_text(markdown_text):
     """Convertit le Markdown en texte brut"""
     if not markdown_text:
@@ -293,7 +307,7 @@ def get_matches_and_lemmas(text: str, nlp) -> tuple:
     """
     # Créer le matcher
     phrase_matcher, matcher = create_eligibility_matcher(nlp)
-    text = text.replace("’", "'")
+    text = text.replace("'", "'")
     doc = nlp(text)
 
     # Chercher les critères
@@ -301,8 +315,8 @@ def get_matches_and_lemmas(text: str, nlp) -> tuple:
     matches_entites = any(token.text in ENTITES for token in doc)
     matches = matcher(doc)
 
-    # Créer un dictionnaire avec les clés en minuscules et leurs lemmes
-    tag_dp_mapping_lemmas = {}
+    # Utiliser le mapping mis en cache
+    tag_dp_mapping_lemmas = get_cached_mapping_lemmas()
 
     return doc, matches_phrase, matches_entites, matches, tag_dp_mapping_lemmas
 
@@ -397,35 +411,25 @@ def extract_from_matches(
             print(f"⚠️ Span ignoré car dans la liste noire: {context_span}")
             continue
 
-        # Lemmatiser le span
-        span_doc = nlp(span.text.lower())
-        span_lemmas = [token.lemma_.lower() for token in span_doc]
+        # Lemmatiser le span (optimisé)
+        span_lemmas = [token.lemma_.lower() for token in span]
         span_text = " ".join(span_lemmas)
 
-        # Chercher une correspondance dans le mapping
-        for k, v in TAG_DP_MAPPING.items():
-            # Lemmatiser la clé
-            key_doc = nlp(k.lower())
-            key_lemmas = [token.lemma_.lower() for token in key_doc]
-            key_text = " ".join(key_lemmas)
-
-            if span_text == key_text:
-                valeur = v.get(field)
-                if valeur and valeur not in debug_matches:
-                    valeurs_uniques.add(valeur)
-                    debug_matches[valeur] = get_highlighted_sentence(
-                        doc, span.start, span.end
-                    )
-                break
+        # Chercher dans le mapping pré-calculé
+        if span_text in tag_dp_mapping_lemmas:
+            valeur = tag_dp_mapping_lemmas[span_text].get(field)
+            if valeur and valeur not in debug_matches:
+                valeurs_uniques.add(valeur)
+                debug_matches[valeur] = get_highlighted_sentence(
+                    doc, span.start, span.end
+                )
 
     # Pour les entités
     if matches_entites:
         for token in doc:
             if token.text in ENTITES:
-                # Lemmatiser l'entité
-                doc_token = nlp(token.text.lower())
-                token_lemmas = [t.lemma_.lower() for t in doc_token]
-                token_lemma_key = " ".join(token_lemmas)
+                # Lemmatiser l'entité (optimisé)
+                token_lemma_key = token.lemma_.lower()
                 if token_lemma_key in tag_dp_mapping_lemmas:
                     valeur = tag_dp_mapping_lemmas[token_lemma_key].get(field)
                     if valeur and valeur not in debug_matches:
@@ -448,3 +452,52 @@ def extract_from_matches(
                     )
 
     return valeurs_uniques, debug_matches
+
+
+def extract_tags_and_providers(
+    text: str, nlp, siren: str = None, name: str = None
+) -> tuple:
+    """Extrait les tags ET les fournisseurs en une seule passe optimisée"""
+
+    # UNE SEULE analyse du texte
+    (
+        doc,
+        matches_phrase,
+        matches_entites,
+        matches,
+        tag_dp_mapping_lemmas,
+    ) = get_matches_and_lemmas(text, nlp)
+
+    # Extraire les tags ET les fournisseurs en parallèle
+    tags_uniques, tags_debug = extract_from_matches(
+        doc,
+        matches_phrase,
+        matches_entites,
+        matches,
+        tag_dp_mapping_lemmas,
+        nlp,
+        "tag",
+    )
+
+    providers_uniques, providers_debug = extract_from_matches(
+        doc,
+        matches_phrase,
+        matches_entites,
+        matches,
+        tag_dp_mapping_lemmas,
+        nlp,
+        "fournisseur",
+    )
+
+    return (
+        sorted(list(tag for tag in tags_uniques if tag is not None)),
+        sorted(
+            list(
+                provider
+                for provider in providers_uniques
+                if provider is not None
+            )
+        ),
+        tags_debug,
+        providers_debug,
+    )

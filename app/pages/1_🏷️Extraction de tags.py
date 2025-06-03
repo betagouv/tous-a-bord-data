@@ -33,10 +33,9 @@ from services.llm_services import (
     call_scaleway,
 )
 from services.nlp_services import (
-    extract_from_matches,
     extract_markdown_text,
+    extract_tags_and_providers,
     filter_transport_fare,
-    get_matches_and_lemmas,
     load_spacy_model,
     normalize_text,
 )
@@ -117,92 +116,42 @@ def filter_nlp(
 
 
 @traceable
-def format_tags(text: str, siren: str, name: str) -> List[str]:
-    """Extrait les tags uniques à partir du texte"""
+def format_tags_and_providers(
+    text: str, siren: str, name: str
+) -> tuple[List[str], List[str]]:
+    """Extrait les tags ET les fournisseurs en une seule passe optimisée"""
     run = get_current_run_tree()
-    st.session_state.run_ids["format_tags"] = run.id
+    st.session_state.run_ids["format_tags_and_providers"] = run.id
 
     nlp = load_spacy_model()
 
-    # Obtenir les matches et lemmes
-    (
-        doc,
-        matches_phrase,
-        matches_entites,
-        matches,
-        tag_dp_mapping_lemmas,
-    ) = get_matches_and_lemmas(text, nlp)
-    if "demandeur" in matches_phrase:
-        print(f"format_tags > matches_phrase: {matches_phrase}")
-
-    # Extraire les tags
-    tags_uniques, debug_matches = extract_from_matches(
-        doc,
-        matches_phrase,
-        matches_entites,
-        matches,
-        tag_dp_mapping_lemmas,
-        nlp,
-        "tag",
+    # UNE SEULE extraction pour tout
+    tags, providers, tags_debug, providers_debug = extract_tags_and_providers(
+        text, nlp, siren, name
     )
 
-    # Stocker dans session_state
-    if debug_matches:
+    # Stocker les explications dans session_state
+    if tags_debug:
         st.session_state.tags_explanations = {
             "title": "### ℹ️ Explications des tags détectés",
             "matches": {
                 tag: match_info
-                for tag, match_info in debug_matches.items()
+                for tag, match_info in tags_debug.items()
                 if tag is not None
             },
         }
 
-    return sorted(list(tag for tag in tags_uniques if tag is not None))
-
-
-@traceable
-def format_providers(text: str, siren: str, name: str) -> List[str]:
-    """Extrait les fournisseurs uniques à partir du texte en se basant sur les matches"""
-    run = get_current_run_tree()
-    st.session_state.run_ids["format_providers"] = run.id
-
-    nlp = load_spacy_model()
-    # Obtenir les matches et lemmes
-    (
-        doc,
-        matches_phrase,
-        matches_entites,
-        matches,
-        tag_dp_mapping_lemmas,
-    ) = get_matches_and_lemmas(text, nlp)
-
-    # Extraire les fournisseurs
-    providers_uniques, debug_matches = extract_from_matches(
-        doc,
-        matches_phrase,
-        matches_entites,
-        matches,
-        tag_dp_mapping_lemmas,
-        nlp,
-        "fournisseur",
-    )
-
-    # Stocker dans session_state
-    if debug_matches:
+    if providers_debug:
         st.session_state.providers_explanations = {
             "title": "### ℹ️ Explications des fournisseurs détectés",
             "matches": {
                 provider: match_info
-                for provider, match_info in debug_matches.items()
+                for provider, match_info in providers_debug.items()
                 if provider is not None
             },
         }
 
-    return sorted(
-        list(
-            provider for provider in providers_uniques if provider is not None
-        )
-    )
+    return tags, providers
 
 
 def show_evaluation_interface(step_name: str, content: str) -> None:
@@ -492,9 +441,10 @@ if selected_aom:
             else:
                 st.error("Aucun contenu pertinent trouvé dans les sources")
 
-    # Step 4: Extraction des tags
-
-    with st.expander("🏷️ Étape 4 : Extraction des tags", expanded=True):
+    # Step 4: Extraction des tags ET fournisseurs (combinée)
+    with st.expander(
+        "🏷️ Étape 4 : Extraction des tags et fournisseurs", expanded=True
+    ):
         is_previous_step_complete = (
             "filtered_contents" in st.session_state
             and st.session_state.filtered_contents.get(
@@ -504,35 +454,38 @@ if selected_aom:
 
         if not is_previous_step_complete:
             st.warning("⚠️ Veuillez d'abord compléter l'étape de filtrage")
+
         if st.button(
-            "Extraire les tags",
-            key="format_in_tags",
+            "Extraire les tags et fournisseurs",
+            key="format_tags_and_providers",
             use_container_width=True,
             disabled=not is_previous_step_complete,
         ):
             with st.spinner("Extraction en cours..."):
-                # Extraire les tags et data providers
-                st.session_state.tags = format_tags(
+                # UNE SEULE extraction pour tout
+                tags, providers = format_tags_and_providers(
                     st.session_state.filtered_contents[
                         "Contenu filtré"
                     ].strip(),
                     n_siren_aom,
                     nom_aom,
                 )
+                st.session_state.tags = tags
+                st.session_state.providers = providers
                 st.rerun()
 
-        # Afficher les tags s'ils existent dans la session
+        # Affichage des tags
         if "tags" in st.session_state:
+            st.markdown("### 🏷️ Tags détectés")
             st.session_state.tags = st_tags(
-                label="# Tags détectés :",
+                label="",
                 text="",
                 value=st.session_state.tags,
                 key="tag_display",
             )
-            # Afficher les explications des tags si elles existent
+
+            # Explications des tags
             if "tags_explanations" in st.session_state:
-                st.markdown("---")
-                st.markdown(st.session_state.tags_explanations["title"])
                 for tag, match_info in st.session_state.tags_explanations[
                     "matches"
                 ].items():
@@ -540,46 +493,18 @@ if selected_aom:
                     st.markdown(match_info, unsafe_allow_html=True)
                     st.markdown("---")
 
-            show_evaluation_interface("format_tags", st.session_state.tags)
-
-    with st.expander("Étape 5 : Extraction des fournisseurs", expanded=True):
-        is_previous_step_complete = (
-            "filtered_contents" in st.session_state
-            and st.session_state.filtered_contents.get(
-                "Contenu filtré", ""
-            ).strip()
-        )
-
-        if not is_previous_step_complete:
-            st.warning("⚠️ Veuillez d'abord compléter l'étape de filtrage")
-        if st.button(
-            "Extraire les fournisseurs de données",
-            key="format_in_providers",
-            use_container_width=True,
-            disabled=not is_previous_step_complete,
-        ):
-            with st.spinner("Extraction en cours..."):
-                # Extraire les tags et data providers
-                st.session_state.providers = format_providers(
-                    st.session_state.filtered_contents[
-                        "Contenu filtré"
-                    ].strip(),
-                    n_siren_aom,
-                    nom_aom,
-                )
-                st.rerun()
-
-        # Afficher les tags s'ils existent dans la session
+        # Affichage des fournisseurs
         if "providers" in st.session_state:
+            st.markdown("### 📊 Fournisseurs détectés")
             st.session_state.providers = st_tags(
-                label="# Fournisseurs détectés :",
+                label="",
                 text="",
                 value=st.session_state.providers,
                 key="provider_display",
             )
+
+            # Explications des fournisseurs
             if "providers_explanations" in st.session_state:
-                st.markdown("---")
-                st.markdown(st.session_state.providers_explanations["title"])
                 for (
                     provider,
                     match_info,
@@ -590,6 +515,9 @@ if selected_aom:
                     st.markdown(match_info, unsafe_allow_html=True)
                     st.markdown("---")
 
+        # Interface d'évaluation combinée
+        if "tags" in st.session_state and "providers" in st.session_state:
             show_evaluation_interface(
-                "format_providers", st.session_state.providers
+                "format_tags_and_providers",
+                f"Tags: {st.session_state.tags}, Providers: {st.session_state.providers}",
             )
