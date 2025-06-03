@@ -153,8 +153,8 @@ TOKENS_ELIGIBILITE = [
     "réduction",
     "bourse échelon",
     "échelon CROUS",
-    "demandeur emploi",
-    "demandeur emploi indemnisé",
-    "demandeur emploi longue durée",
-    "demandeur emploi non indemnisé",
+    "demandeur d'emploi",
+    "demandeur d'emploi indemnisé",
+    "demandeur d'emploi longue durée",
+    "demandeur d'emploi non indemnisé",
 ]

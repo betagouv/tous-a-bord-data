@@ -70,20 +70,20 @@ TAG_DP_MAPPING = {
         "tag": "Statut handicapé",
         "fournisseur": "CNSA",
     },
-    "demandeur asile": {"tag": None, "fournisseur": None},
-    "demandeur emploi": {
+    "demandeur d'asile": {"tag": None, "fournisseur": None},
+    "demandeur d'emploi": {
         "tag": "Demandeur d'emploi",
         "fournisseur": "FRANCE TRAVAIL",
     },
-    "demandeur emploi indemnisé": {
+    "demandeur d'emploi indemnisé": {
         "tag": "Demandeur d'emploi",
         "fournisseur": "FRANCE TRAVAIL",
     },
-    "demandeur emploi longue durée": {
+    "demandeur d'emploi longue durée": {
         "tag": "Demandeur d'emploi",
         "fournisseur": "FRANCE TRAVAIL",
     },
-    "demandeur emploi non indemnisé": {
+    "demandeur d'emploi non indemnisé": {
         "tag": "Demandeur d'emploi",
         "fournisseur": "FRANCE TRAVAIL",
     },
@@ -278,5 +278,4 @@ BLACK_LIST = [
     "bourse du travail",
     "place de la bourse",
     "actif",
-    "combattant",
 ]

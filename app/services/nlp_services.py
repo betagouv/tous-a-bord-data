@@ -86,7 +86,12 @@ def create_eligibility_matcher(nlp):
     # Configure the phrase matcher for the eligibility criteria
     phrase_matcher = PhraseMatcher(nlp.vocab, attr="LEMMA")
     # Add the patterns for the eligibility terms
-    patterns = [nlp(text) for text in TOKENS_ELIGIBILITE]
+    patterns = []
+    for text in TOKENS_ELIGIBILITE:
+        # Normaliser avant lemmatisation
+        doc = nlp(text.lower())
+        patterns.append(doc)
+
     phrase_matcher.add("CRITERE_ELIGIBILITE", patterns)
 
     # Configure the regex matcher for the patterns
@@ -242,7 +247,6 @@ def filter_transport_fare(paragraphs, nlp):
     for paragraph in paragraphs:
         doc = nlp(paragraph)
 
-        # Chercher les critères dans tout le paragraphe
         matches_phrase = phrase_matcher(doc)
         matches_regex = matcher(doc)
         matches_entites = any(token.text in ENTITES for token in doc)
@@ -289,28 +293,16 @@ def get_matches_and_lemmas(text: str, nlp) -> tuple:
     """
     # Créer le matcher
     phrase_matcher, matcher = create_eligibility_matcher(nlp)
-
-    # Traiter le texte
+    text = text.replace("’", "'")
     doc = nlp(text)
-    st.write("### Debug lemmatisation")
-    st.write("Texte à analyser:", text)
 
-    # Chercher les critères dans tout le paragraphe
+    # Chercher les critères
     matches_phrase = phrase_matcher(doc)
     matches_entites = any(token.text in ENTITES for token in doc)
     matches = matcher(doc)
 
     # Créer un dictionnaire avec les clés en minuscules et leurs lemmes
     tag_dp_mapping_lemmas = {}
-    st.write("\n### Lemmes du TAG_DP_MAPPING:")
-    for k, v in TAG_DP_MAPPING.items():
-        if k and v:  # Vérifier que la clé et la valeur existent
-            doc_key = nlp(k.lower())
-            lemma = doc_key[
-                0
-            ].lemma_.lower()  # Prendre le lemme du premier token
-            tag_dp_mapping_lemmas[lemma] = v
-            st.write(f"Clé originale: {k} -> Lemme: {lemma}")
 
     return doc, matches_phrase, matches_entites, matches, tag_dp_mapping_lemmas
 
@@ -362,12 +354,6 @@ def get_highlighted_sentence(doc, start, end, start_char=None, text=None):
     return f"{before}<mark>{match}</mark>{after}"
 
 
-def normalize_expression(text: str) -> str:
-    """Normalise une expression en remplaçant les
-    apostrophes et en nettoyant les espaces"""
-    return text.lower().replace("'", " ").replace("  ", " ").strip()
-
-
 def extract_from_matches(
     doc,
     matches_phrase,
@@ -395,14 +381,11 @@ def extract_from_matches(
     valeurs_uniques = set()
     debug_matches = {}
 
-    st.write("\n### Debug des matches de phrases:")
     # Pour les matches de phrases
     for match_id, start, end in matches_phrase:
         span = doc[start:end]
         if not span.text:  # Vérifier que le span n'est pas vide
             continue
-
-        st.write(f"\nSpan trouvé: {span.text}")
 
         # Vérification du contexte pour les mots sensibles
         context_window = 2  # Nombre de tokens avant/après à vérifier
@@ -411,26 +394,22 @@ def extract_from_matches(
         context_span = doc[start_context:end_context].text.lower()
 
         if any(black_term in context_span for black_term in BLACK_LIST):
-            st.write(f"⚠️ Span ignoré car dans la liste noire: {context_span}")
+            print(f"⚠️ Span ignoré car dans la liste noire: {context_span}")
             continue
 
-        # Normaliser et lemmatiser le span
-        span_text = normalize_expression(span.text)
-        span_doc = nlp(span_text)
+        # Lemmatiser le span
+        span_doc = nlp(span.text.lower())
         span_lemmas = [token.lemma_.lower() for token in span_doc]
         span_text = " ".join(span_lemmas)
-        st.write(f"Span lemmatisé: {span_text}")
 
         # Chercher une correspondance dans le mapping
         for k, v in TAG_DP_MAPPING.items():
-            # Normaliser et lemmatiser la clé
-            key_text = normalize_expression(k)
-            key_doc = nlp(key_text)
+            # Lemmatiser la clé
+            key_doc = nlp(k.lower())
             key_lemmas = [token.lemma_.lower() for token in key_doc]
             key_text = " ".join(key_lemmas)
 
             if span_text == key_text:
-                st.write(f"✓ Match trouvé avec la clé: {k}")
                 valeur = v.get(field)
                 if valeur and valeur not in debug_matches:
                     valeurs_uniques.add(valeur)
@@ -441,15 +420,14 @@ def extract_from_matches(
 
     # Pour les entités
     if matches_entites:
-        st.write("\n### Debug des entités:")
         for token in doc:
             if token.text in ENTITES:
-                token_lemma = token.lemma_.lower()
-                st.write(
-                    f"Entité trouvée: {token.text} -> Lemme: {token_lemma}"
-                )
-                if token_lemma in tag_dp_mapping_lemmas:
-                    valeur = tag_dp_mapping_lemmas[token_lemma].get(field)
+                # Lemmatiser l'entité
+                doc_token = nlp(token.text.lower())
+                token_lemmas = [t.lemma_.lower() for t in doc_token]
+                token_lemma_key = " ".join(token_lemmas)
+                if token_lemma_key in tag_dp_mapping_lemmas:
+                    valeur = tag_dp_mapping_lemmas[token_lemma_key].get(field)
                     if valeur and valeur not in debug_matches:
                         valeurs_uniques.add(valeur)
                         debug_matches[valeur] = get_highlighted_sentence(
@@ -458,13 +436,11 @@ def extract_from_matches(
 
     # Pour les matchs spéciaux (AGE et QF)
     if field == "tag":  # Ces matchs spéciaux ne concernent que les tags
-        st.write("\n### Debug des matchs spéciaux:")
         special_tags = {"AGE": "Age", "QF": "Quotient Familial"}
         for match_id, start, end in matches:
             match_type = nlp.vocab.strings[match_id]
             if match_type in special_tags:
                 tag = special_tags[match_type]
-                st.write(f"Match spécial trouvé: {match_type} -> Tag: {tag}")
                 if tag and tag not in debug_matches:
                     valeurs_uniques.add(tag)
                     debug_matches[tag] = get_highlighted_sentence(

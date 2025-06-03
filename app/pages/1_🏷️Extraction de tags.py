@@ -132,6 +132,8 @@ def format_tags(text: str, siren: str, name: str) -> List[str]:
         matches,
         tag_dp_mapping_lemmas,
     ) = get_matches_and_lemmas(text, nlp)
+    if "demandeur" in matches_phrase:
+        print(f"format_tags > matches_phrase: {matches_phrase}")
 
     # Extraire les tags
     tags_uniques, debug_matches = extract_from_matches(
@@ -492,7 +494,7 @@ if selected_aom:
 
     # Step 4: Extraction des tags
 
-    with st.expander("🏷️Étape 4 : Extraction des tags", expanded=True):
+    with st.expander("🏷️ Étape 4 : Extraction des tags", expanded=True):
         is_previous_step_complete = (
             "filtered_contents" in st.session_state
             and st.session_state.filtered_contents.get(
