@@ -146,7 +146,6 @@ TOKENS_ELIGIBILITE = [
     "scolarisé",
     "sénior",
     "service civique",
-    "solidaire",
     "stagiaire",
     "statut debout pénible",
     "tarif",
@@ -158,4 +157,12 @@ TOKENS_ELIGIBILITE = [
     "réduction",
     "bourse échelon",
     "échelon CROUS",
+]
+
+# Liste noire des termes à ne pas considérer comme critères d'éligibilité
+# même s'ils correspondent aux patterns (typiquement des noms de lieux)
+BLACK_LIST_LOCATIONS = [
+    "canebière bourse",
+    "bourse du travail",
+    "place de la bourse",
 ]

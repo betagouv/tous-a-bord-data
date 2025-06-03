@@ -140,7 +140,7 @@ def format_tags(text: str, siren: str, name: str) -> List[str]:
         matches,
         tag_dp_mapping_lemmas,
         nlp,
-        field="tag",
+        "tag",
     )
 
     # Stocker dans session_state
@@ -157,20 +157,53 @@ def format_tags(text: str, siren: str, name: str) -> List[str]:
     return sorted(list(tag for tag in tags_uniques if tag is not None))
 
 
+@traceable
+def format_providers(text: str, siren: str, name: str) -> List[str]:
+    """Extrait les fournisseurs uniques à partir du texte en se basant sur les matches"""
+    run = get_current_run_tree()
+    st.session_state.run_ids["format_providers"] = run.id
+
+    nlp = load_spacy_model()
+    # Obtenir les matches et lemmes
+    (
+        doc,
+        matches_phrase,
+        matches_entites,
+        matches,
+        tag_dp_mapping_lemmas,
+    ) = get_matches_and_lemmas(text, nlp)
+
+    # Extraire les fournisseurs
+    providers_uniques, debug_matches = extract_from_matches(
+        doc,
+        matches_phrase,
+        matches_entites,
+        matches,
+        tag_dp_mapping_lemmas,
+        nlp,
+        "fournisseur",
+    )
+
+    # Stocker dans session_state
+    if debug_matches:
+        st.session_state.providers_explanations = {
+            "title": "### ℹ️ Explications des fournisseurs détectés",
+            "matches": {
+                provider: match_info
+                for provider, match_info in debug_matches.items()
+                if provider is not None
+            },
+        }
+
+    return sorted(
+        list(
+            provider for provider in providers_uniques if provider is not None
+        )
+    )
+
+
 def show_evaluation_interface(step_name: str, content: str) -> None:
     """Affiche l'interface d'évaluation pour une étape"""
-    # Afficher les explications des tags si elles existent
-    if step_name == "format_tags" and "tags_explanations" in st.session_state:
-        st.markdown("---")
-        st.markdown(st.session_state.tags_explanations["title"])
-        for tag, match_info in st.session_state.tags_explanations[
-            "matches"
-        ].items():
-            st.markdown(f"**{tag}** détecté dans :")
-            st.markdown(match_info, unsafe_allow_html=True)
-            st.markdown("---")
-
-    st.divider()
     st.subheader("✨ Évaluation")
 
     # Score avec star_ratings
@@ -261,6 +294,7 @@ selected_aom = st.selectbox(
         st.session_state.pop("scraped_content", None),
         st.session_state.pop("filtered_contents", None),
         st.session_state.pop("tags", None),
+        st.session_state.pop("providers", None),
         st.session_state.pop("run_ids", {}),  # Réinitialiser les run_ids
     ),
 )
@@ -473,7 +507,7 @@ if selected_aom:
             use_container_width=True,
             disabled=not is_previous_step_complete,
         ):
-            with st.spinner("Génération des tags en cours..."):
+            with st.spinner("Extraction en cours..."):
                 # Extraire les tags et data providers
                 st.session_state.tags = format_tags(
                     st.session_state.filtered_contents[
@@ -492,24 +526,67 @@ if selected_aom:
                 value=st.session_state.tags,
                 key="tag_display",
             )
-            show_evaluation_interface("format_tags", st.session_state.tags)
+            # Afficher les explications des tags si elles existent
+        if "tags_explanations" in st.session_state:
+            st.markdown("---")
+            st.markdown(st.session_state.tags_explanations["title"])
+            for tag, match_info in st.session_state.tags_explanations[
+                "matches"
+            ].items():
+                st.markdown(f"**{tag}** détecté dans :")
+                st.markdown(match_info, unsafe_allow_html=True)
+                st.markdown("---")
 
-            # Afficher les fournisseurs associés aux tags
-            st.markdown("### 🏢 Fournisseurs de données")
-            st.markdown(
-                "Les fournisseurs suivants ont été identifiés pour les tags détectés :"
+        show_evaluation_interface("format_tags", st.session_state.tags)
+
+    with st.expander("Étape 5 : Extraction des fournisseurs", expanded=True):
+        is_previous_step_complete = (
+            "filtered_contents" in st.session_state
+            and st.session_state.filtered_contents.get(
+                "Contenu filtré", ""
+            ).strip()
+        )
+
+        if not is_previous_step_complete:
+            st.warning("⚠️ Veuillez d'abord compléter l'étape de filtrage")
+        if st.button(
+            "Extraire les fournisseurs de données",
+            key="format_in_providers",
+            use_container_width=True,
+            disabled=not is_previous_step_complete,
+        ):
+            with st.spinner("Extraction en cours..."):
+                # Extraire les tags et data providers
+                st.session_state.providers = format_providers(
+                    st.session_state.filtered_contents[
+                        "Contenu filtré"
+                    ].strip(),
+                    n_siren_aom,
+                    nom_aom,
+                )
+                st.rerun()
+
+        # Afficher les tags s'ils existent dans la session
+        if "providers" in st.session_state:
+            st.session_state.providers = st_tags(
+                label="# Fournisseurs détectés :",
+                text="",
+                value=st.session_state.providers,
+                key="provider_display",
             )
+            if "providers_explanations" in st.session_state:
+                st.markdown("---")
+                st.markdown(st.session_state.providers_explanations["title"])
+                for (
+                    provider,
+                    match_info,
+                ) in st.session_state.providers_explanations[
+                    "matches"
+                ].items():
+                    st.markdown(f"**{provider}** détecté dans :")
+                    st.markdown(match_info, unsafe_allow_html=True)
+                    st.markdown("---")
 
-            # Créer un dictionnaire tag -> fournisseur à partir des matches
-            tag_provider_map = {}
-            for tag in st.session_state.tags:
-                providers = set()
-                for k, v in TAG_DP_MAPPING.items():
-                    if v.get("tag") == tag and v.get("fournisseur"):
-                        providers.add(v["fournisseur"])
-                if providers:
-                    tag_provider_map[tag] = sorted(list(providers))
-
-            # Afficher les associations tag -> fournisseur
-            for tag, providers in tag_provider_map.items():
-                st.markdown(f"**{tag}** : {', '.join(providers)}")
+            show_evaluation_interface(
+                "format_providers", st.session_state.providers
+            )

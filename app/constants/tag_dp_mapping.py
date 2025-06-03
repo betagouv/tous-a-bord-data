@@ -1,7 +1,6 @@
 TAG_DP_MAPPING = {
     "accompagnant PMR": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
     "accompagnateur": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
-    "actif": {"tag": None, "fournisseur": "FRANCE TRAVAIL"},
     "adulte salarié": {"tag": None, "fournisseur": "FRANCE TRAVAIL"},
     "allocataire": {"tag": "Quotient Familial", "fournisseur": "CNAF / MSA"},
     "Allocation Adulte Handicapé": {

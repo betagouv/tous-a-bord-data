@@ -7,7 +7,10 @@ import streamlit as st
 from bs4 import BeautifulSoup
 from constants.entites_eligibilite import ENTITES
 from constants.tag_dp_mapping import TAG_DP_MAPPING
-from constants.tokens_eligibilite import TOKENS_ELIGIBILITE
+from constants.tokens_eligibilite import (
+    BLACK_LIST_LOCATIONS,
+    TOKENS_ELIGIBILITE,
+)
 from spacy.matcher import Matcher, PhraseMatcher
 
 # commons
@@ -364,7 +367,7 @@ def extract_from_matches(
     matches,
     tag_dp_mapping_lemmas,
     nlp,
-    field="tag",
+    field,
 ) -> tuple:
     """Extrait les valeurs uniques et les matches de
     debug à partir des matches.
@@ -389,6 +392,19 @@ def extract_from_matches(
         span = doc[start:end]
         if not span.text:  # Vérifier que le span n'est pas vide
             continue
+
+        # Vérification du contexte pour les mots sensibles
+        # 1. Vérifier si le mot fait partie d'une expression de la liste noire
+        context_window = 2  # Nombre de tokens avant/après à vérifier
+        start_context = max(0, start - context_window)
+        end_context = min(len(doc), end + context_window)
+        context_span = doc[start_context:end_context].text.lower()
+
+        if any(
+            black_term in context_span for black_term in BLACK_LIST_LOCATIONS
+        ):
+            continue
+
         span_doc = nlp(span.text.lower())
         span_lemma = span_doc[0].lemma_.lower()
         if span_lemma in tag_dp_mapping_lemmas:
