@@ -33,9 +33,10 @@ from services.llm_services import (
     call_scaleway,
 )
 from services.nlp_services import (
-    create_eligibility_matcher,
+    extract_from_matches,
     extract_markdown_text,
     filter_transport_fare,
+    get_matches_and_lemmas,
     load_spacy_model,
     normalize_text,
 )
@@ -98,9 +99,7 @@ def filter_nlp(
         run = get_current_run_tree()
         st.session_state.run_ids["filter"] = run.id
 
-        with st.spinner(
-            "Chargement du modèle d'analyse automatique du langage..."
-        ):
+        with st.spinner("Analyse automatique du langage naturel..."):
             nlp = load_spacy_model()
             raw_text = extract_markdown_text(content)
             paragraphs = normalize_text(raw_text, nlp)
@@ -116,129 +115,33 @@ def filter_nlp(
         return {"Contenu filtré": f"Erreur lors du filtrage NLP : {str(e)}"}
 
 
-def get_highlighted_sentence(doc, start, end, start_char=None, text=None):
-    """Trouve et met en surbrillance une partie de phrase.
-
-    Args:
-        doc: Le document spaCy
-        start: Index de début du token
-        end: Index de fin du token
-        start_char: Position de début du caractère (optionnel)
-        text: Texte à mettre en surbrillance (optionnel)
-
-    Returns:
-        str: La phrase avec le texte surligné en HTML
-    """
-    # Trouver la phrase contenant le match
-    sent = next(
-        (
-            sent
-            for sent in doc.sents
-            if start >= sent.start and end <= sent.end
-        ),
-        None,
-    )
-
-    if not sent:
-        return text if text else doc[start:end].text
-
-    # Si start_char n'est pas fourni, le calculer à partir du span
-    if start_char is None:
-        start_char = doc[start].idx
-        end_char = doc[end - 1].idx + len(doc[end - 1].text)
-    else:
-        end_char = start_char + len(text)
-
-    # Créer la phrase avec la partie matchée en surbrillance
-    before = sent.text[: start_char - sent.start_char]
-    match = (
-        text
-        if text
-        else sent.text[
-            start_char - sent.start_char : end_char - sent.start_char
-        ]
-    )
-    after = sent.text[end_char - sent.start_char :]
-
-    return f"{before}<mark>{match}</mark>{after}"
-
-
 @traceable
-def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
+def format_tags(text: str, siren: str, name: str) -> List[str]:
     """Extrait les tags uniques à partir du texte"""
     run = get_current_run_tree()
     st.session_state.run_ids["format_tags"] = run.id
-    # Créer le matcher
-    phrase_matcher, matcher = create_eligibility_matcher(nlp)
 
-    # Traiter le texte
-    doc = nlp(text)
-    # Chercher les critères dans tout le paragraphe
-    matches_phrase = phrase_matcher(doc)
-    matches_entites = any(token.text in ENTITES for token in doc)
+    nlp = load_spacy_model()
 
-    # Trouver les correspondances et récupérer les tags uniques
-    tags_uniques = set()
-    debug_matches = {}  # Pour stocker les correspondances texte -> tag
+    # Obtenir les matches et lemmes
+    (
+        doc,
+        matches_phrase,
+        matches_entites,
+        matches,
+        tag_dp_mapping_lemmas,
+    ) = get_matches_and_lemmas(text, nlp)
 
-    # Créer un dictionnaire avec les clés en minuscules et leurs lemmes
-    tag_dp_mapping_lemmas = {}
-    for k, v in TAG_DP_MAPPING.items():
-        if k and v and v.get("tag"):  # Vérifier que la clé et le tag existent
-            doc_key = nlp(k.lower())
-            lemma = doc_key[
-                0
-            ].lemma_.lower()  # Prendre le lemme du premier token
-            tag_dp_mapping_lemmas[lemma] = v
-
-    # Pour les matches de phrases
-    for match_id, start, end in matches_phrase:
-        span = doc[start:end]
-        if not span.text:  # Vérifier que le span n'est pas vide
-            continue
-        span_doc = nlp(span.text.lower())
-        span_lemma = span_doc[0].lemma_.lower()
-        if span_lemma in tag_dp_mapping_lemmas:
-            tag = tag_dp_mapping_lemmas[span_lemma]["tag"]
-            if (
-                tag and tag not in debug_matches
-            ):  # Ne garder que le premier match pour chaque tag
-                tags_uniques.add(tag)
-                # Trouver la phrase complète contenant le match
-                debug_matches[tag] = get_highlighted_sentence(
-                    doc, span.start, span.end
-                )
-
-    # Pour les entités
-    if matches_entites:
-        for token in doc:
-            if token.text in ENTITES:
-                token_lemma = token.lemma_.lower()
-                if token_lemma in tag_dp_mapping_lemmas:
-                    tag = tag_dp_mapping_lemmas[token_lemma]["tag"]
-                    if (
-                        tag and tag not in debug_matches
-                    ):  # Ne garder que le premier match pour chaque tag
-                        tags_uniques.add(tag)
-                        # Trouver la phrase complète contenant le match
-                        debug_matches[tag] = get_highlighted_sentence(
-                            doc, token.i, token.i + 1, token.idx, token.text
-                        )
-
-    # Pour les matchs spéciaux (AGE et QF)
-    matches = matcher(doc)
-    special_tags = {"AGE": "Age", "QF": "Quotient Familial"}
-    for match_id, start, end in matches:
-        match_type = nlp.vocab.strings[match_id]
-        if match_type in special_tags:
-            tag = special_tags[match_type]
-            if (
-                tag and tag not in debug_matches
-            ):  # Ne garder que le premier match pour chaque tag
-                span = doc[start:end]
-                tags_uniques.add(tag)
-                # Trouver la phrase complète contenant le match
-                debug_matches[tag] = get_highlighted_sentence(doc, start, end)
+    # Extraire les tags
+    tags_uniques, debug_matches = extract_from_matches(
+        doc,
+        matches_phrase,
+        matches_entites,
+        matches,
+        tag_dp_mapping_lemmas,
+        nlp,
+        field="tag",
+    )
 
     # Stocker dans session_state
     if debug_matches:
@@ -254,7 +157,6 @@ def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
     return sorted(list(tag for tag in tags_uniques if tag is not None))
 
 
-@traceable
 def show_evaluation_interface(step_name: str, content: str) -> None:
     """Affiche l'interface d'évaluation pour une étape"""
     # Afficher les explications des tags si elles existent
@@ -572,14 +474,11 @@ if selected_aom:
             disabled=not is_previous_step_complete,
         ):
             with st.spinner("Génération des tags en cours..."):
-                # Charger le modèle SpaCy
-                nlp = load_spacy_model()
                 # Extraire les tags et data providers
                 st.session_state.tags = format_tags(
                     st.session_state.filtered_contents[
                         "Contenu filtré"
                     ].strip(),
-                    nlp,
                     n_siren_aom,
                     nom_aom,
                 )
@@ -594,3 +493,23 @@ if selected_aom:
                 key="tag_display",
             )
             show_evaluation_interface("format_tags", st.session_state.tags)
+
+            # Afficher les fournisseurs associés aux tags
+            st.markdown("### 🏢 Fournisseurs de données")
+            st.markdown(
+                "Les fournisseurs suivants ont été identifiés pour les tags détectés :"
+            )
+
+            # Créer un dictionnaire tag -> fournisseur à partir des matches
+            tag_provider_map = {}
+            for tag in st.session_state.tags:
+                providers = set()
+                for k, v in TAG_DP_MAPPING.items():
+                    if v.get("tag") == tag and v.get("fournisseur"):
+                        providers.add(v["fournisseur"])
+                if providers:
+                    tag_provider_map[tag] = sorted(list(providers))
+
+            # Afficher les associations tag -> fournisseur
+            for tag, providers in tag_provider_map.items():
+                st.markdown(f"**{tag}** : {', '.join(providers)}")

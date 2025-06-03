@@ -6,6 +6,7 @@ import spacy.util
 import streamlit as st
 from bs4 import BeautifulSoup
 from constants.entites_eligibilite import ENTITES
+from constants.tag_dp_mapping import TAG_DP_MAPPING
 from constants.tokens_eligibilite import TOKENS_ELIGIBILITE
 from spacy.matcher import Matcher, PhraseMatcher
 
@@ -272,3 +273,156 @@ def filter_transport_fare(paragraphs, nlp):
                     relevant_sentences.append(sent.text)
 
     return filtered_paragraphs, relevant_sentences
+
+
+def get_matches_and_lemmas(text: str, nlp) -> tuple:
+    """Extrait les matches et les lemmes à partir du texte.
+
+    Args:
+        text: Le texte à analyser
+        nlp: Le modèle SpaCy chargé
+
+    Returns:
+        tuple: (doc, matches_phrase, matches_entites,
+        matches, tag_dp_mapping_lemmas)
+    """
+    # Créer le matcher
+    phrase_matcher, matcher = create_eligibility_matcher(nlp)
+
+    # Traiter le texte
+    doc = nlp(text)
+
+    # Chercher les critères dans tout le paragraphe
+    matches_phrase = phrase_matcher(doc)
+    matches_entites = any(token.text in ENTITES for token in doc)
+    matches = matcher(doc)
+
+    # Créer un dictionnaire avec les clés en minuscules et leurs lemmes
+    tag_dp_mapping_lemmas = {}
+    for k, v in TAG_DP_MAPPING.items():
+        if k and v:  # Vérifier que la clé et la valeur existent
+            doc_key = nlp(k.lower())
+            lemma = doc_key[
+                0
+            ].lemma_.lower()  # Prendre le lemme du premier token
+            tag_dp_mapping_lemmas[lemma] = v
+
+    return doc, matches_phrase, matches_entites, matches, tag_dp_mapping_lemmas
+
+
+def get_highlighted_sentence(doc, start, end, start_char=None, text=None):
+    """Trouve et met en surbrillance une partie de phrase.
+
+    Args:
+        doc: Le document spaCy
+        start: Index de début du token
+        end: Index de fin du token
+        start_char: Position de début du caractère (optionnel)
+        text: Texte à mettre en surbrillance (optionnel)
+
+    Returns:
+        str: La phrase avec le texte surligné en HTML
+    """
+    # Trouver la phrase contenant le match
+    sent = next(
+        (
+            sent
+            for sent in doc.sents
+            if start >= sent.start and end <= sent.end
+        ),
+        None,
+    )
+
+    if not sent:
+        return text if text else doc[start:end].text
+
+    # Si start_char n'est pas fourni, le calculer à partir du span
+    if start_char is None:
+        start_char = doc[start].idx
+        end_char = doc[end - 1].idx + len(doc[end - 1].text)
+    else:
+        end_char = start_char + len(text)
+
+    # Créer la phrase avec la partie matchée en surbrillance
+    before = sent.text[: start_char - sent.start_char]
+    match = (
+        text
+        if text
+        else sent.text[
+            start_char - sent.start_char : end_char - sent.start_char
+        ]
+    )
+    after = sent.text[end_char - sent.start_char :]
+
+    return f"{before}<mark>{match}</mark>{after}"
+
+
+def extract_from_matches(
+    doc,
+    matches_phrase,
+    matches_entites,
+    matches,
+    tag_dp_mapping_lemmas,
+    nlp,
+    field="tag",
+) -> tuple:
+    """Extrait les valeurs uniques et les matches de
+    debug à partir des matches.
+
+    Args:
+        doc: Le document SpaCy
+        matches_phrase: Les matches de phrases
+        matches_entites: Les matches d'entités
+        matches: Les matches regex
+        tag_dp_mapping_lemmas: Le dictionnaire des lemmes
+        nlp: Le modèle SpaCy
+        field: Le champ à extraire du TAG_DP_MAPPING ("tag" ou "fournisseur")
+
+    Returns:
+        tuple: (valeurs_uniques, debug_matches)
+    """
+    valeurs_uniques = set()
+    debug_matches = {}
+
+    # Pour les matches de phrases
+    for match_id, start, end in matches_phrase:
+        span = doc[start:end]
+        if not span.text:  # Vérifier que le span n'est pas vide
+            continue
+        span_doc = nlp(span.text.lower())
+        span_lemma = span_doc[0].lemma_.lower()
+        if span_lemma in tag_dp_mapping_lemmas:
+            valeur = tag_dp_mapping_lemmas[span_lemma].get(field)
+            if valeur and valeur not in debug_matches:
+                valeurs_uniques.add(valeur)
+                debug_matches[valeur] = get_highlighted_sentence(
+                    doc, span.start, span.end
+                )
+
+    # Pour les entités
+    if matches_entites:
+        for token in doc:
+            if token.text in ENTITES:
+                token_lemma = token.lemma_.lower()
+                if token_lemma in tag_dp_mapping_lemmas:
+                    valeur = tag_dp_mapping_lemmas[token_lemma].get(field)
+                    if valeur and valeur not in debug_matches:
+                        valeurs_uniques.add(valeur)
+                        debug_matches[valeur] = get_highlighted_sentence(
+                            doc, token.i, token.i + 1, token.idx, token.text
+                        )
+
+    # Pour les matchs spéciaux (AGE et QF)
+    if field == "tag":  # Ces matchs spéciaux ne concernent que les tags
+        special_tags = {"AGE": "Age", "QF": "Quotient Familial"}
+        for match_id, start, end in matches:
+            match_type = nlp.vocab.strings[match_id]
+            if match_type in special_tags:
+                tag = special_tags[match_type]
+                if tag and tag not in debug_matches:
+                    valeurs_uniques.add(tag)
+                    debug_matches[tag] = get_highlighted_sentence(
+                        doc, start, end
+                    )
+
+    return valeurs_uniques, debug_matches

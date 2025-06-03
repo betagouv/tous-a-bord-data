@@ -280,7 +280,7 @@ def filter_nlp(
         run = get_current_run_tree()
         st.session_state.run_ids["filter"] = run.id
 
-        with st.spinner("Chargement du modèle SpaCy..."):
+        with st.spinner("Analyse automatique du langage naturel..."):
             nlp = load_spacy_model()
             raw_text = extract_markdown_text(content)
             paragraphs = normalize_text(raw_text, nlp)
@@ -744,7 +744,7 @@ if selected_aom:
                 st.rerun()
 
     # Step 5: Formatage en publicode
-    with st.expander("Étape 5 : Formatage en publicode", expanded=True):
+    with st.expander("📖 Étape 5 : Formatage en publicode", expanded=True):
         is_previous_step_complete = (
             "pre_formatted_content" in st.session_state
             and st.session_state.pre_formatted_content
