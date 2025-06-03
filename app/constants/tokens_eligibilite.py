@@ -54,10 +54,6 @@ TOKENS_ELIGIBILITE = [
     "Corps Européen Solidarité",
     "couple",
     "déficient visuel auditif",
-    "demandeur emploi",
-    "demandeur emploi indemnisé",
-    "demandeur emploi longue durée",
-    "demandeur emploi non indemnisé",
     "demi-pensionnaire",
     "Demi-pensionnaire Externe",
     "échelon",
@@ -157,12 +153,8 @@ TOKENS_ELIGIBILITE = [
     "réduction",
     "bourse échelon",
     "échelon CROUS",
-]
-
-# Liste noire des termes à ne pas considérer comme critères d'éligibilité
-# même s'ils correspondent aux patterns (typiquement des noms de lieux)
-BLACK_LIST_LOCATIONS = [
-    "canebière bourse",
-    "bourse du travail",
-    "place de la bourse",
+    "demandeur emploi",
+    "demandeur emploi indemnisé",
+    "demandeur emploi longue durée",
+    "demandeur emploi non indemnisé",
 ]

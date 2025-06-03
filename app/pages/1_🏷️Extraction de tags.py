@@ -50,6 +50,7 @@ st.set_page_config(page_title="Extraction des tags", layout="wide")
 
 load_dotenv()
 
+
 st.title("Extraction des tags")
 
 # Connect to the database
@@ -491,7 +492,7 @@ if selected_aom:
 
     # Step 4: Extraction des tags
 
-    with st.expander("Étape 4 : Extraction des tags", expanded=True):
+    with st.expander("🏷️Étape 4 : Extraction des tags", expanded=True):
         is_previous_step_complete = (
             "filtered_contents" in st.session_state
             and st.session_state.filtered_contents.get(
@@ -527,17 +528,17 @@ if selected_aom:
                 key="tag_display",
             )
             # Afficher les explications des tags si elles existent
-        if "tags_explanations" in st.session_state:
-            st.markdown("---")
-            st.markdown(st.session_state.tags_explanations["title"])
-            for tag, match_info in st.session_state.tags_explanations[
-                "matches"
-            ].items():
-                st.markdown(f"**{tag}** détecté dans :")
-                st.markdown(match_info, unsafe_allow_html=True)
+            if "tags_explanations" in st.session_state:
                 st.markdown("---")
+                st.markdown(st.session_state.tags_explanations["title"])
+                for tag, match_info in st.session_state.tags_explanations[
+                    "matches"
+                ].items():
+                    st.markdown(f"**{tag}** détecté dans :")
+                    st.markdown(match_info, unsafe_allow_html=True)
+                    st.markdown("---")
 
-        show_evaluation_interface("format_tags", st.session_state.tags)
+            show_evaluation_interface("format_tags", st.session_state.tags)
 
     with st.expander("Étape 5 : Extraction des fournisseurs", expanded=True):
         is_previous_step_complete = (

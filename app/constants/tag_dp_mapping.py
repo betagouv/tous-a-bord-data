@@ -71,6 +71,10 @@ TAG_DP_MAPPING = {
         "fournisseur": "CNSA",
     },
     "demandeur asile": {"tag": None, "fournisseur": None},
+    "demandeur emploi": {
+        "tag": "Demandeur d'emploi",
+        "fournisseur": "FRANCE TRAVAIL",
+    },
     "demandeur emploi indemnisé": {
         "tag": "Demandeur d'emploi",
         "fournisseur": "FRANCE TRAVAIL",
@@ -83,7 +87,6 @@ TAG_DP_MAPPING = {
         "tag": "Demandeur d'emploi",
         "fournisseur": "FRANCE TRAVAIL",
     },
-    "demandeur emploi": {"tag": None, "fournisseur": None},
     "Demi-pensionnaire Externe": {"tag": "Statut élève", "fournisseur": "MEN"},
     "demi-pensionnaire": {"tag": "Statut élève", "fournisseur": "MEN"},
     "domicilié": {"tag": None, "fournisseur": None},
@@ -268,3 +271,12 @@ TAG_DP_MAPPING = {
     "SEGPA": {"tag": None, "fournisseur": None},
     "SMIC": {"tag": None, "fournisseur": None},
 }
+
+
+BLACK_LIST = [
+    "canebière bourse",
+    "bourse du travail",
+    "place de la bourse",
+    "actif",
+    "combattant",
+]
