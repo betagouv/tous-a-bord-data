@@ -278,4 +278,5 @@ BLACK_LIST = [
     "bourse du travail",
     "place de la bourse",
     "actif",
+    "bourse aux vélos",
 ]
