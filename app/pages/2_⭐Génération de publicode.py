@@ -44,9 +44,7 @@ from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs
 
 # Configuration de la page pour utiliser plus de largeur
-st.set_page_config(
-    page_title="Evaluation du traitement par AOM", layout="wide"
-)
+st.set_page_config(page_title="Génération de publicode", layout="wide")
 
 # Fonction pour lire le fichier bordeaux.txt
 def load_example(type: str, aom_name: str) -> str:
@@ -69,7 +67,7 @@ def load_example(type: str, aom_name: str) -> str:
 
 load_dotenv()
 
-st.title("Evaluation du traitement par AOM")
+st.title("Génération de publicode")
 
 # Connect to the database
 engine = create_engine(get_postgres_cs())
@@ -166,7 +164,7 @@ if "run_ids" not in st.session_state:
 
 
 @traceable
-def filter_content_by_relevance(
+def filter_llm(
     content: str,
     keywords: List[str],
     model: str,
@@ -274,7 +272,7 @@ def filter_content_by_relevance(
 
 
 @traceable
-def filter_content_with_nlp(
+def filter_nlp(
     content: str, model: str, siren: str, name: str
 ) -> Dict[str, str]:
     """Filtre le contenu avec SpaCy"""
@@ -476,8 +474,6 @@ selected_aom = st.selectbox(
         st.session_state.pop("filtered_contents", None),
         st.session_state.pop("pre_formatted_content", None),
         st.session_state.pop("publicode", None),
-        st.session_state.pop("tags", None),
-        st.session_state.pop("netext_content", None),
         st.session_state.pop("run_ids", {}),  # Réinitialiser les run_ids
     ),
 )
@@ -671,9 +667,9 @@ if selected_aom:
                 st.error("Veuillez d'abord charger le contenu dans l'étape 2")
                 st.stop()
             if selected_model_filter == "Filtrage NLP":
-                filtered_result = filter_content_with_nlp(
+                filtered_result = filter_nlp(
                     scraped_content,
-                    selected_model_filter,
+                    "custom_filter_v2",
                     n_siren_aom,
                     nom_aom,
                 )
@@ -712,10 +708,10 @@ if selected_aom:
         if not is_previous_step_complete:
             st.warning("⚠️ Veuillez d'abord compléter l'étape de filtrage")
 
-        selected_llm_cleaner = st.selectbox(
+        selected_llm_pre_format = st.selectbox(
             "Sélectionner le modèle LLM :",
             options=list(LLM_MODELS.keys()),
-            key="selected_llm_cleaner",
+            key="selected_llm_pre_format",
             disabled=not is_previous_step_complete,
         )
 
@@ -740,7 +736,7 @@ if selected_aom:
             if "filtered_contents" in st.session_state:
                 pre_formatted_content = pre_format(
                     st.session_state.filtered_contents,
-                    selected_llm_cleaner,
+                    selected_llm_pre_format,
                     n_siren_aom,
                     nom_aom,
                 )
@@ -759,10 +755,10 @@ if selected_aom:
                 "⚠️ Veuillez d'abord compléter l'étape de pré-formatage"
             )
         # Sélection du modèle LLM
-        selected_llm_yaml = st.selectbox(
+        selected_llm_publicode = st.selectbox(
             "Sélectionner le modèle LLM :",
             options=list(LLM_MODELS.keys()),
-            key="selected_llm_yaml",
+            key="selected_llm_publicode",
             disabled=not is_previous_step_complete,
         )
         if st.button(
@@ -774,7 +770,7 @@ if selected_aom:
             with st.spinner("Génération du format Publicode en cours..."):
                 publicode = format_publicode(
                     st.session_state.pre_formatted_content,
-                    selected_llm_yaml,
+                    selected_llm_publicode,
                     n_siren_aom,
                     nom_aom,
                 )

@@ -1,5 +1,4 @@
 import re
-from typing import Dict, List
 
 import markdown
 import spacy
@@ -165,46 +164,6 @@ def create_transport_fare_matcher(nlp):
     )
 
     return phrase_matcher, matcher
-
-
-def extract_transport_fare(text: str, nlp) -> List[Dict[str, str]]:
-    """Extrait les critères de transport du texte"""
-    # Créer les matchers
-    phrase_matcher, matcher = create_transport_fare_matcher(nlp)
-
-    # Traiter le texte
-    doc = nlp(text)
-
-    # Initialiser la liste des résultats
-    results = []
-
-    # Utiliser le phrase matcher
-    matches = phrase_matcher(doc)
-    for match_id, start, end in matches:
-        span = doc[start:end]
-        results.append(
-            {
-                "type": "CRITERE_ELIGIBILITE",
-                "text": span.text,
-                "lemma": span.lemma_,
-            }
-        )
-
-    # Utiliser le regex matcher
-    matches = matcher(doc)
-    for match_id, start, end in matches:
-        rule_id = nlp.vocab.strings[match_id]
-        span = doc[start:end]
-        results.append({"type": rule_id, "text": span.text})
-
-    # Reconnaître les entités spécifiques
-    for token in doc:
-        if token.text in ENTITES:
-            results.append(
-                {"type": "ACRONYME_ELIGIBILITE", "text": token.text}
-            )
-
-    return results
 
 
 # Load the fr_core_news_lg model

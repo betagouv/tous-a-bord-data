@@ -44,61 +44,14 @@ from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs
 
 # Configuration de la page pour utiliser plus de largeur
-st.set_page_config(
-    page_title="Evaluation du traitement par AOM", layout="wide"
-)
-
-# Fonction pour lire le fichier bordeaux.txt
-def load_example(type: str, aom_name: str) -> str:
-    """Charge le contenu du fichier bordeaux.txt"""
-    import os
-    from pathlib import Path
-
-    # Chemin vers le fichier bordeaux.txt
-    current_dir = Path(__file__).parent.parent  # Remonter au dossier app
-    aom_file = current_dir / "prompts" / "data" / type / f"{aom_name}.txt"
-
-    try:
-        with open(aom_file, "r", encoding="utf-8") as file:
-            return file.read()
-    except FileNotFoundError:
-        return "Exemple non trouvé"
-    except Exception as e:
-        return f"Erreur lecture fichier: {str(e)}"
-
+st.set_page_config(page_title="Extraction des tags", layout="wide")
 
 load_dotenv()
 
-st.title("Evaluation du traitement par AOM")
+st.title("Extraction des tags")
 
 # Connect to the database
 engine = create_engine(get_postgres_cs())
-
-
-# After the imports
-client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-
-# Constantes pour les modèles LLM disponibles
-
-
-def select_model(model_name: str, prompt: str) -> str:
-    """Select the model based on the model name"""
-    if "Ollama" in model_name:
-        current_chunk_text = call_ollama(
-            prompt,
-            model=LLM_MODELS[model_name]["name"],
-        )
-    elif "Anthropic" in model_name:
-        current_chunk_text = call_anthropic(
-            prompt, model=LLM_MODELS[model_name]["name"]
-        )
-    elif "Scaleway" in model_name:
-        current_chunk_text = call_scaleway(
-            prompt, model=LLM_MODELS[model_name]["name"]
-        )
-    else:
-        raise ValueError(f"Modèle non supporté : {model_name}")
-    return current_chunk_text
 
 
 def get_aom_content_by_source(siren: str, source_url: str) -> str:
@@ -124,40 +77,10 @@ def get_aom_content_by_source(siren: str, source_url: str) -> str:
     return "\n\n".join(all_pages)
 
 
-def get_tokenizer_for_model():
-    """Retourne le bon tokenizer en fonction du modèle"""
-    return tiktoken.get_encoding("cl100k_base").encode
-
-
 def count_tokens(text: str) -> int:
     """Compte le nombre de tokens dans un texte (version générale)"""
     # Utiliser cl100k comme tokenizer général
     return len(tiktoken.encoding_for_model("gpt-3.5-turbo").encode(text))
-
-
-def split_content_in_chunks(content: str, model: str) -> List[str]:
-    """Découpe le contenu en chunks de taille max_tokens"""
-    max_tokens = LLM_MODELS[model]["max_tokens"] - MAX_TOKEN_OUTPUT * 2
-    tokenizer = get_tokenizer_for_model()
-
-    # Utiliser le même tokenizer pour l'encodage et le décodage
-    try:
-        decoder = tiktoken.get_encoding("cl100k_base").decode
-    except KeyError:
-        st.error("Erreur de décodage, utilisation de cl100k_base")
-        decoder = tiktoken.get_encoding("cl100k_base").decode
-
-    # Encoder le texte
-    tokens = tokenizer(content)
-
-    # Découper en chunks
-    chunks = []
-    for i in range(0, len(tokens), max_tokens):
-        chunk_tokens = tokens[i : i + max_tokens]
-        chunk_text = decoder(chunk_tokens)
-        chunks.append(chunk_text)
-
-    return chunks
 
 
 # Initialiser le dictionnaire des run_ids s'il n'existe pas
@@ -166,115 +89,7 @@ if "run_ids" not in st.session_state:
 
 
 @traceable
-def filter_content_by_relevance(
-    content: str,
-    keywords: List[str],
-    model: str,
-    siren: str,
-    name: str,
-) -> Dict[str, str]:
-    """Filtre le contenu pour ne garder que les parties pertinentes"""
-    try:
-        run = get_current_run_tree()
-        st.session_state.run_ids["filter"] = run.id
-
-        nb_tokens = count_tokens(content)
-        msg = "Début du filtrage - " f"Nombre de tokens: {nb_tokens}"
-        st.write(msg)
-        chunks = split_content_in_chunks(content, model)
-        st.write(f"Nombre de chunks: {len(chunks)}")
-
-        text_container = st.empty()
-        filtered_content = ""
-
-        for i, chunk in enumerate(chunks):
-            st.write(f"Traitement du chunk {i+1}/{len(chunks)}")
-
-            # Affichage du chunk pour debug
-            chunk_tokens = count_tokens(chunk)
-            st.info(
-                f"--- Chunk {i+1} ---\n"
-                f"Nombre de tokens : {chunk_tokens}\n"
-                f"Contenu du chunk :\n{chunk[:2000]}"
-            )
-
-            prompt = (
-                "Extrais toutes les informations tarifaires des transports en "
-                "commun à partir du texte suivant. Garde exactement :\n"
-                "1. Les tarifs standards (billets, carnets, abonnements)\n"
-                "2. Les tarifs réduits et leurs conditions\n"
-                "3. Les tarifs solidaires et leurs conditions d'éligibilité\n"
-                "4. Les zones géographiques concernées\n\n"
-                "IMPORTANT:\n"
-                "- Conserve les montants exacts et les unités (€)\n"
-                "- Garde toutes les conditions d'éligibilité\n"
-                "- Ne fais pas de résumé ou d'interprétation\n"
-                "- Retourne le texte brut avec sa structure\n"
-                "- Si tu trouves des informations tarifaires, retourne-les\n"
-                "- Ne retourne PAS de texte formaté ou de liste\n"
-                "- Conserve les marqueurs '--- Page:' si présents\n\n"
-                "- Si tu ne trouves aucune information tarifaire, réponds "
-                "uniquement 'NO_TARIF_INFO'\n\n"
-                f"Mots-clés de référence : {', '.join(keywords)}\n\n"
-                "Contenu à filtrer :\n"
-                f"{chunk}"
-            )
-
-            try:
-                current_chunk_text = select_model(model, prompt)
-
-                if "NO_TARIF_INFO" not in current_chunk_text:
-                    if filtered_content:
-                        filtered_content += "\n\n"
-                    filtered_content += current_chunk_text
-
-                    if filtered_content.strip():
-                        text_container.text_area(
-                            "Contenu filtré",
-                            value=filtered_content,
-                            height=300,
-                            disabled=True,
-                        )
-
-                    chunk_tokens = count_tokens(current_chunk_text)
-                    msg = (
-                        f"✓ Chunk {i+1} filtré - "
-                        f"Nombre de tokens: {chunk_tokens}"
-                    )
-                    st.write(msg)
-                else:
-                    st.warning(
-                        f"⚠️ Chunk {i+1} : Aucune information tarifaire"
-                    )
-
-            except Exception as chunk_error:
-                msg = (
-                    f"Erreur lors du traitement du chunk {i+1}: "
-                    f"{str(chunk_error)}"
-                )
-                st.warning(msg)
-                continue
-
-        if filtered_content:
-            nb_tokens = count_tokens(filtered_content)
-            msg = (
-                f"Filtrage terminé - "
-                f"Nombre de tokens du résultat: {nb_tokens}"
-            )
-            st.write(msg)
-            return {"Contenu filtré": filtered_content}
-        else:
-            text_container.empty()
-            return {"Contenu filtré": ""}
-
-    except Exception as e:
-        st.error(f"Erreur de filtrage : {str(e)}")
-        st.write("Détails de l'erreur:", e)
-        return {"Contenu filtré": f"Erreur lors du filtrage : {str(e)}"}
-
-
-@traceable
-def filter_content_with_nlp(
+def filter_nlp(
     content: str, model: str, siren: str, name: str
 ) -> Dict[str, str]:
     """Filtre le contenu avec SpaCy"""
@@ -296,90 +111,6 @@ def filter_content_with_nlp(
     except Exception as e:
         st.error(f"Erreur de filtrage NLP : {str(e)}")
         return {"Contenu filtré": f"Erreur lors du filtrage NLP : {str(e)}"}
-
-
-@traceable
-def pre_format(
-    contents: Dict[str, str], model: str, siren: str, name: str
-) -> str:
-    """Nettoie le contenu pour ne garder que les informations tarifaires"""
-    run = get_current_run_tree()
-    st.session_state.run_ids["pre_format"] = run.id
-
-    all_content = "\n\n".join(contents.values())
-    max_tokens = LLM_MODELS[model]["max_tokens"]
-    nb_tokens = count_tokens(all_content)
-    prompt = (
-        "Extrais toutes les informations tarifaires des transports en "
-        "commun à partir du texte suivant. Garde exactement :\n"
-        "1. Les tarifs standards (billets, carnets, abonnements)\n"
-        "2. Les tarifs réduits et leurs conditions\n"
-        "3. Les tarifs solidaires et leurs conditions d'éligibilité\n"
-        "4. Les zones géographiques concernées\n\n"
-        "IMPORTANT:\n"
-        "- Conserve les montants exacts et les unités (€)\n"
-        "- Garde toutes les conditions d'éligibilité\n"
-        "- Ne fais pas de résumé ou d'interprétation\n"
-        "- Retourne le texte brut avec sa structure\n"
-        "- Si tu trouves des informations tarifaires, retourne-les\n"
-        "- Ne retourne PAS de texte formaté ou de liste\n"
-        "- Si l'information est en double, dedupliquer\n"
-        "- Si tu ne trouves aucune information tarifaire, réponds "
-        "uniquement 'NO_TARIF_INFO'\n\n"
-    )
-    # Créer un conteneur pour le résultat
-    result_container = st.empty()
-    if nb_tokens > max_tokens:
-        chunks = split_content_in_chunks(all_content, model)
-        st.write(f"Nombre de chunks : {len(chunks)}")
-        extracted_parts = []
-        for i, chunk in enumerate(chunks):
-            st.write(f"Traitement du chunk {i+1}/{len(chunks)}")
-            chunk_result = select_model(model, prompt + f"Contenu:\n{chunk}")
-            if "NO_TARIF_INFO" not in chunk_result:
-                extracted_parts.append(chunk_result)
-                # Afficher le résultat partiel
-                result_container.text_area(
-                    "Résultat de l'extraction",
-                    value="\n\n".join(extracted_parts),
-                    height=300,
-                    disabled=True,
-                )
-        # Fusionner les résultats des chunks
-        final_result = "\n\n".join(extracted_parts)
-        # Afficher le résultat final
-        result_container.text_area(
-            "Résultat final de l'extraction",
-            value=final_result,
-            height=300,
-            disabled=True,
-        )
-        return final_result
-    else:
-        result = select_model(model, prompt + f"Contenu:\n{all_content}")
-        # Afficher le résultat
-        result_container.text_area(
-            "Résultat de l'extraction", value=result, height=300, disabled=True
-        )
-        return result
-
-
-@traceable
-def format_publicode(content: str, model: str, siren: str, name: str) -> str:
-    """Convertit le contenu en format Publicode"""
-    run = get_current_run_tree()
-    st.session_state.run_ids["format_publicode"] = run.id
-
-    # Charger l'exemple de Bordeaux
-    aom_name = "bordeaux"
-    example_tsst = load_example("tsst", aom_name)
-    example_publicode = load_example("publicode", aom_name)
-    prompt = text_to_publicode(
-        example_tsst,
-        example_publicode,
-        content,
-    )
-    return select_model(model, prompt)
 
 
 @traceable
@@ -540,10 +271,7 @@ selected_aom = st.selectbox(
         st.session_state.pop("raw_scraped_content", None),
         st.session_state.pop("scraped_content", None),
         st.session_state.pop("filtered_contents", None),
-        st.session_state.pop("pre_formatted_content", None),
-        st.session_state.pop("publicode", None),
         st.session_state.pop("tags", None),
-        st.session_state.pop("netext_content", None),
         st.session_state.pop("run_ids", {}),  # Réinitialiser les run_ids
     ),
 )
@@ -699,26 +427,15 @@ if selected_aom:
         if not is_previous_step_complete:
             st.warning("⚠️ Veuillez d'abord compléter l'étape de scraping")
 
-        model_options = ["Filtrage NLP"] + list(LLM_MODELS.keys())
-        selected_model_filter = st.selectbox(
-            "Méthode de filtrage :",
-            options=model_options,
-            key="selected_llm_filter",
-            disabled=not is_previous_step_complete,
-        )
-
         # Afficher le contenu filtré s'il existe
         if "filtered_contents" in st.session_state:
             filtered_content = st.session_state.filtered_contents[
                 "Contenu filtré"
             ]
             nb_tokens = count_tokens(filtered_content)
-            if selected_model_filter == "Filtrage NLP":
-                title = f"Contenu filtré (SpaCy) - {nb_tokens} tokens"
-            else:
-                title = f"Contenu filtré - {nb_tokens} tokens"
+
             st.text_area(
-                title,
+                label=f"Contenu filtré (NLP) - {nb_tokens} tokens",
                 value=filtered_content,
                 height=500,
                 disabled=True,
@@ -736,34 +453,18 @@ if selected_aom:
             if not scraped_content:
                 st.error("Veuillez d'abord charger le contenu dans l'étape 2")
                 st.stop()
-            if selected_model_filter == "Filtrage NLP":
-                filtered_result = filter_content_with_nlp(
-                    scraped_content,
-                    selected_model_filter,
-                    n_siren_aom,
-                    nom_aom,
-                )
-                if filtered_result["Contenu filtré"].strip():
-                    st.session_state.filtered_contents = filtered_result
-                    st.success("Filtrage terminé")
-                    st.rerun()
-                else:
-                    st.error("Aucun contenu pertinent trouvé dans les sources")
+            filtered_result = filter_nlp(
+                scraped_content,
+                "custom_filter_v2",
+                n_siren_aom,
+                nom_aom,
+            )
+            if filtered_result["Contenu filtré"].strip():
+                st.session_state.filtered_contents = filtered_result
+                st.success("Filtrage terminé")
+                st.rerun()
             else:
-                filtered_result = filter_content_by_relevance(
-                    content=scraped_content,
-                    keywords=selected_keywords,
-                    model=selected_model_filter,
-                    siren=n_siren_aom,
-                    name=nom_aom,
-                )
-
-                if filtered_result["Contenu filtré"].strip():
-                    st.session_state.filtered_contents = filtered_result
-                    st.success("Filtrage terminé")
-                    st.rerun()
-                else:
-                    st.error("Aucun contenu pertinent trouvé dans les sources")
+                st.error("Aucun contenu pertinent trouvé dans les sources")
 
     # Step 4: Extraction des tags
 
