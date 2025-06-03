@@ -153,13 +153,33 @@ def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
         span_lemma = span_doc[0].lemma_.lower()
         if span_lemma in tag_dp_mapping_lemmas:
             tag = tag_dp_mapping_lemmas[span_lemma]["tag"]
-            if tag:  # Vérifier que le tag n'est pas None
+            if (
+                tag and tag not in debug_matches
+            ):  # Ne garder que le premier match pour chaque tag
                 tags_uniques.add(tag)
-                if tag not in debug_matches:
-                    debug_matches[tag] = []
-                debug_matches[tag].append(
-                    f"Phrase: '{span.text}' (lemme: {span_lemma})"
+                # Trouver la phrase complète contenant le match
+                sent = next(
+                    (
+                        sent
+                        for sent in doc.sents
+                        if span.start >= sent.start and span.end <= sent.end
+                    ),
+                    None,
                 )
+                if sent:
+                    # Créer la phrase avec la partie matchée en surbrillance
+                    before = sent.text[: span.start_char - sent.start_char]
+                    match = sent.text[
+                        span.start_char
+                        - sent.start_char : span.end_char
+                        - sent.start_char
+                    ]
+                    after = sent.text[span.end_char - sent.start_char :]
+                    highlighted_text = f"{before}<mark>{match}</mark>{after}"
+                else:
+                    highlighted_text = span.text
+                match_info = f"{highlighted_text}"
+                debug_matches[tag] = match_info
 
     # Pour les entités
     if matches_entites:
@@ -168,13 +188,33 @@ def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
                 token_lemma = token.lemma_.lower()
                 if token_lemma in tag_dp_mapping_lemmas:
                     tag = tag_dp_mapping_lemmas[token_lemma]["tag"]
-                    if tag:  # Vérifier que le tag n'est pas None
+                    if (
+                        tag and tag not in debug_matches
+                    ):  # Ne garder que le premier match pour chaque tag
                         tags_uniques.add(tag)
-                        if tag not in debug_matches:
-                            debug_matches[tag] = []
-                        debug_matches[tag].append(
-                            f"Entité: '{token.text}' (lemme: {token_lemma})"
+                        # Trouver la phrase complète contenant le match
+                        sent = next(
+                            (
+                                sent
+                                for sent in doc.sents
+                                if token.i >= sent.start and token.i < sent.end
+                            ),
+                            None,
                         )
+                        if sent:
+                            # Créer la phrase avec la partie matchée en surbrillance
+                            before = sent.text[: token.idx - sent.start_char]
+                            match = token.text
+                            after = sent.text[
+                                token.idx + len(token.text) - sent.start_char :
+                            ]
+                            highlighted_text = (
+                                f"{before}<mark>{match}</mark>{after}"
+                            )
+                        else:
+                            highlighted_text = token.text
+                        match_info = f"{highlighted_text}"
+                        debug_matches[tag] = match_info
 
     # Pour les matchs spéciaux (AGE et QF)
     matches = matcher(doc)
@@ -183,31 +223,63 @@ def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
         match_type = nlp.vocab.strings[match_id]
         if match_type in special_tags:
             tag = special_tags[match_type]
-            if tag:  # Vérifier que le tag n'est pas None
+            if (
+                tag and tag not in debug_matches
+            ):  # Ne garder que le premier match pour chaque tag
                 span = doc[start:end]
                 tags_uniques.add(tag)
-                if tag not in debug_matches:
-                    debug_matches[tag] = []
-                debug_matches[tag].append(
-                    f"Match spécial {match_type}: '{span.text}'"
+                # Trouver la phrase complète contenant le match
+                sent = next(
+                    (
+                        sent
+                        for sent in doc.sents
+                        if span.start >= sent.start and span.end <= sent.end
+                    ),
+                    None,
                 )
+                if sent:
+                    # Créer la phrase avec la partie matchée en surbrillance
+                    before = sent.text[: span.start_char - sent.start_char]
+                    match = sent.text[
+                        span.start_char
+                        - sent.start_char : span.end_char
+                        - sent.start_char
+                    ]
+                    after = sent.text[span.end_char - sent.start_char :]
+                    highlighted_text = f"{before}<mark>{match}</mark>{after}"
+                else:
+                    highlighted_text = span.text
+                match_info = f"{highlighted_text}"
+                debug_matches[tag] = match_info
 
-    # Afficher les correspondances pour le debugging
+    # Stocker dans session_state
     if debug_matches:
-        st.write("### 🔍 Détails des correspondances trouvées:")
-        for tag in sorted(
-            tag for tag in debug_matches.keys() if tag is not None
-        ):
-            st.markdown(f"**Tag : {tag}**")
-            for match in debug_matches[tag]:
-                st.markdown(f"- {match}")
-            st.markdown("---")
+        st.session_state.tags_explanations = {
+            "title": "### ℹ️ Explications des tags détectés",
+            "matches": {
+                tag: match_info
+                for tag, match_info in debug_matches.items()
+                if tag is not None
+            },
+        }
 
     return sorted(list(tag for tag in tags_uniques if tag is not None))
 
 
+@traceable
 def show_evaluation_interface(step_name: str, content: str) -> None:
     """Affiche l'interface d'évaluation pour une étape"""
+    # Afficher les explications des tags si elles existent
+    if step_name == "format_tags" and "tags_explanations" in st.session_state:
+        st.markdown("---")
+        st.markdown(st.session_state.tags_explanations["title"])
+        for tag, match_info in st.session_state.tags_explanations[
+            "matches"
+        ].items():
+            st.markdown(f"**{tag}** détecté dans :")
+            st.markdown(match_info, unsafe_allow_html=True)
+            st.markdown("---")
+
     st.divider()
     st.subheader("✨ Évaluation")
 
