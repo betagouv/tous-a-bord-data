@@ -79,192 +79,6 @@ def count_tokens(text, nlp):
     return len(doc)
 
 
-def create_transport_fare_matcher(nlp):
-    """Crée un matcher pour les critères de transport"""
-    # Configure the phrase matcher for the eligibility criteria
-    phrase_matcher = PhraseMatcher(nlp.vocab, attr="LEMMA")
-    # Add the patterns for the eligibility terms
-    patterns = [nlp(text) for text in TOKENS_ELIGIBILITE]
-    phrase_matcher.add("CRITERE_ELIGIBILITE", patterns)
-
-    # Configure the regex matcher for the patterns
-    matcher = Matcher(nlp.vocab)
-    # Patterns for ages
-    matcher.add(
-        "AGE",
-        [
-            # Detect : "18 ans", "25 ans", etc.
-            [{"TEXT": {"REGEX": r"\d+"}}, {"LOWER": "ans"}],
-            # Detect : "18 ans et plus", "25 ans et plus", etc.
-            [
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "ans"},
-                {"LOWER": "et"},
-                {"LOWER": "plus"},
-            ],
-            # Detect : "moins de 18 ans"
-            [
-                {"LOWER": "moins"},
-                {"LOWER": "de"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "ans"},
-            ],
-            # Detect : "plus de 18 ans"
-            [
-                {"LOWER": "plus"},
-                {"LOWER": "de"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "ans"},
-            ],
-            # Detect : "entre 18 et 25 ans"
-            [
-                {"LOWER": "entre"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "et"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "ans"},
-            ],
-            # Detect : "de 18 à 25 ans"
-            [
-                {"LOWER": "de"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "à"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "ans"},
-            ],
-            # Detect : "à partir de 18 ans"
-            [
-                {"LOWER": "à"},
-                {"LOWER": "partir"},
-                {"LOWER": "de"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "ans"},
-            ],
-            # Detect : "18/25 ans"
-            [
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"TEXT": "/"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "ans"},
-            ],
-        ],
-    )
-    # Patterns pour montants et pourcentages
-    matcher.add(
-        "TARIF",
-        [
-            # Detect : "10€"
-            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "€"}],
-            # Detect : "10 euros"
-            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "euros"}],
-            # Detect : "10 %"
-            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "%"}],
-            # Detect : "10 €/an"
-            [
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"TEXT": "€"},
-                {"LOWER": "/"},
-                {"LOWER": {"IN": ["an", "mois", "jour"]}},
-            ],
-            # Detect : "10 euros/an"
-            [
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"TEXT": "euros"},
-                {"LOWER": "par"},
-                {"LOWER": {"IN": ["an", "mois", "jour"]}},
-            ],
-        ],
-    )
-    # Patterns pour quotient familial
-    matcher.add(
-        "QF",
-        [
-            # "quotient familial inférieur à 1",
-            # "quotient familial supérieur à 1"
-            [
-                {"LOWER": {"IN": ["qf", "quotient familial"]}},
-                {
-                    "LOWER": {
-                        "IN": [
-                            "inférieur",
-                            "supérieur",
-                            ">",
-                            "<",
-                            ">=",
-                            "<=",
-                        ]
-                    }
-                },
-                {"LOWER": "à"},
-                {"TEXT": {"REGEX": r"\d+"}},
-            ],
-            # Detect : "QF de 1 à 2"
-            [
-                {"LOWER": {"IN": ["qf", "quotient familial"]}},
-                {"LOWER": "de"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "à"},
-                {"TEXT": {"REGEX": r"\d+"}},
-            ],
-            # Detect : "QF entre 1 et 2"
-            [
-                {"LOWER": {"IN": ["qf", "quotient familial"]}},
-                {"LOWER": "entre"},
-                {"TEXT": {"REGEX": r"\d+"}},
-                {"LOWER": "et"},
-                {"TEXT": {"REGEX": r"\d+"}},
-            ],
-        ],
-    )
-
-    return phrase_matcher, matcher
-
-
-def filter_transport_fare(paragraphs, nlp):
-    """Filter paragraphs to keep only those with eligibility criteria"""
-    filtered_paragraphs = []
-    relevant_sentences = []
-
-    # Créer les matchers une seule fois
-    phrase_matcher, matcher = create_transport_fare_matcher(nlp)
-
-    for paragraph in paragraphs:
-        doc = nlp(paragraph)
-
-        # Chercher les critères dans tout le paragraphe
-        matches_phrase = phrase_matcher(doc)
-        matches_regex = matcher(doc)
-        matches_entites = any(token.text in ENTITES for token in doc)
-
-        # Si on trouve au moins un match, le paragraphe est pertinent
-        if matches_phrase or matches_regex or matches_entites:
-            filtered_paragraphs.append(paragraph)
-            # Ajouter les phrases qui contiennent les matches
-            for sent in doc.sents:
-                sent_start = sent.start
-                sent_end = sent.end
-
-                # Vérifier si la phrase contient un match du phrase_matcher
-                has_phrase_match = any(
-                    sent_start <= start < sent_end
-                    for _, start, _ in matches_phrase
-                )
-
-                # Vérifier si la phrase contient un match du regex_matcher
-                has_regex_match = any(
-                    sent_start <= start < sent_end
-                    for _, start, _ in matches_regex
-                )
-
-                # Vérifier si la phrase contient une entité
-                has_entity = any(token.text in ENTITES for token in sent)
-
-                if has_phrase_match or has_regex_match or has_entity:
-                    relevant_sentences.append(sent.text)
-
-    return filtered_paragraphs, relevant_sentences
-
-
 def create_eligibility_matcher(nlp):
     """Crée un matcher pour détecter les tokens en utilisant la lemmisation"""
     # Configure the phrase matcher for the eligibility criteria
@@ -378,3 +192,83 @@ def create_eligibility_matcher(nlp):
     )
 
     return phrase_matcher, matcher
+
+
+def create_transport_fare_matcher(nlp):
+    """Crée un matcher pour les critères de transport"""
+    # Récupérer les matchers de base pour l'éligibilité
+    phrase_matcher, matcher = create_eligibility_matcher(nlp)
+
+    # Ajouter les patterns spécifiques aux tarifs
+    matcher.add(
+        "TARIF",
+        [
+            # Detect : "10€"
+            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "€"}],
+            # Detect : "10 euros"
+            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "euros"}],
+            # Detect : "10 %"
+            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "%"}],
+            # Detect : "10 €/an"
+            [
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"TEXT": "€"},
+                {"LOWER": "/"},
+                {"LOWER": {"IN": ["an", "mois", "jour"]}},
+            ],
+            # Detect : "10 euros/an"
+            [
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"TEXT": "euros"},
+                {"LOWER": "par"},
+                {"LOWER": {"IN": ["an", "mois", "jour"]}},
+            ],
+        ],
+    )
+
+    return phrase_matcher, matcher
+
+
+def filter_transport_fare(paragraphs, nlp):
+    """Filter paragraphs to keep only those with eligibility criteria"""
+    filtered_paragraphs = []
+    relevant_sentences = []
+
+    # Créer les matchers une seule fois
+    phrase_matcher, matcher = create_transport_fare_matcher(nlp)
+
+    for paragraph in paragraphs:
+        doc = nlp(paragraph)
+
+        # Chercher les critères dans tout le paragraphe
+        matches_phrase = phrase_matcher(doc)
+        matches_regex = matcher(doc)
+        matches_entites = any(token.text in ENTITES for token in doc)
+
+        # Si on trouve au moins un match, le paragraphe est pertinent
+        if matches_phrase or matches_regex or matches_entites:
+            filtered_paragraphs.append(paragraph)
+            # Ajouter les phrases qui contiennent les matches
+            for sent in doc.sents:
+                sent_start = sent.start
+                sent_end = sent.end
+
+                # Vérifier si la phrase contient un match du phrase_matcher
+                has_phrase_match = any(
+                    sent_start <= start < sent_end
+                    for _, start, _ in matches_phrase
+                )
+
+                # Vérifier si la phrase contient un match du regex_matcher
+                has_regex_match = any(
+                    sent_start <= start < sent_end
+                    for _, start, _ in matches_regex
+                )
+
+                # Vérifier si la phrase contient une entité
+                has_entity = any(token.text in ENTITES for token in sent)
+
+                if has_phrase_match or has_regex_match or has_entity:
+                    relevant_sentences.append(sent.text)
+
+    return filtered_paragraphs, relevant_sentences

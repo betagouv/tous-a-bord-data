@@ -116,6 +116,53 @@ def filter_nlp(
         return {"Contenu filtré": f"Erreur lors du filtrage NLP : {str(e)}"}
 
 
+def get_highlighted_sentence(doc, start, end, start_char=None, text=None):
+    """Trouve et met en surbrillance une partie de phrase.
+
+    Args:
+        doc: Le document spaCy
+        start: Index de début du token
+        end: Index de fin du token
+        start_char: Position de début du caractère (optionnel)
+        text: Texte à mettre en surbrillance (optionnel)
+
+    Returns:
+        str: La phrase avec le texte surligné en HTML
+    """
+    # Trouver la phrase contenant le match
+    sent = next(
+        (
+            sent
+            for sent in doc.sents
+            if start >= sent.start and end <= sent.end
+        ),
+        None,
+    )
+
+    if not sent:
+        return text if text else doc[start:end].text
+
+    # Si start_char n'est pas fourni, le calculer à partir du span
+    if start_char is None:
+        start_char = doc[start].idx
+        end_char = doc[end - 1].idx + len(doc[end - 1].text)
+    else:
+        end_char = start_char + len(text)
+
+    # Créer la phrase avec la partie matchée en surbrillance
+    before = sent.text[: start_char - sent.start_char]
+    match = (
+        text
+        if text
+        else sent.text[
+            start_char - sent.start_char : end_char - sent.start_char
+        ]
+    )
+    after = sent.text[end_char - sent.start_char :]
+
+    return f"{before}<mark>{match}</mark>{after}"
+
+
 @traceable
 def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
     """Extrait les tags uniques à partir du texte"""
@@ -158,28 +205,9 @@ def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
             ):  # Ne garder que le premier match pour chaque tag
                 tags_uniques.add(tag)
                 # Trouver la phrase complète contenant le match
-                sent = next(
-                    (
-                        sent
-                        for sent in doc.sents
-                        if span.start >= sent.start and span.end <= sent.end
-                    ),
-                    None,
+                debug_matches[tag] = get_highlighted_sentence(
+                    doc, span.start, span.end
                 )
-                if sent:
-                    # Créer la phrase avec la partie matchée en surbrillance
-                    before = sent.text[: span.start_char - sent.start_char]
-                    match = sent.text[
-                        span.start_char
-                        - sent.start_char : span.end_char
-                        - sent.start_char
-                    ]
-                    after = sent.text[span.end_char - sent.start_char :]
-                    highlighted_text = f"{before}<mark>{match}</mark>{after}"
-                else:
-                    highlighted_text = span.text
-                match_info = f"{highlighted_text}"
-                debug_matches[tag] = match_info
 
     # Pour les entités
     if matches_entites:
@@ -193,28 +221,9 @@ def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
                     ):  # Ne garder que le premier match pour chaque tag
                         tags_uniques.add(tag)
                         # Trouver la phrase complète contenant le match
-                        sent = next(
-                            (
-                                sent
-                                for sent in doc.sents
-                                if token.i >= sent.start and token.i < sent.end
-                            ),
-                            None,
+                        debug_matches[tag] = get_highlighted_sentence(
+                            doc, token.i, token.i + 1, token.idx, token.text
                         )
-                        if sent:
-                            # Créer la phrase avec la partie matchée en surbrillance
-                            before = sent.text[: token.idx - sent.start_char]
-                            match = token.text
-                            after = sent.text[
-                                token.idx + len(token.text) - sent.start_char :
-                            ]
-                            highlighted_text = (
-                                f"{before}<mark>{match}</mark>{after}"
-                            )
-                        else:
-                            highlighted_text = token.text
-                        match_info = f"{highlighted_text}"
-                        debug_matches[tag] = match_info
 
     # Pour les matchs spéciaux (AGE et QF)
     matches = matcher(doc)
@@ -229,28 +238,7 @@ def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
                 span = doc[start:end]
                 tags_uniques.add(tag)
                 # Trouver la phrase complète contenant le match
-                sent = next(
-                    (
-                        sent
-                        for sent in doc.sents
-                        if span.start >= sent.start and span.end <= sent.end
-                    ),
-                    None,
-                )
-                if sent:
-                    # Créer la phrase avec la partie matchée en surbrillance
-                    before = sent.text[: span.start_char - sent.start_char]
-                    match = sent.text[
-                        span.start_char
-                        - sent.start_char : span.end_char
-                        - sent.start_char
-                    ]
-                    after = sent.text[span.end_char - sent.start_char :]
-                    highlighted_text = f"{before}<mark>{match}</mark>{after}"
-                else:
-                    highlighted_text = span.text
-                match_info = f"{highlighted_text}"
-                debug_matches[tag] = match_info
+                debug_matches[tag] = get_highlighted_sentence(doc, start, end)
 
     # Stocker dans session_state
     if debug_matches:
