@@ -406,6 +406,7 @@ def extract_from_matches(
         start_context = max(0, start - context_window)
         end_context = min(len(doc), end + context_window)
         context_span = doc[start_context:end_context].text.lower()
+        context_span = re.sub(r"\s+", " ", context_span).strip()
 
         if any(black_term in context_span for black_term in BLACK_LIST):
             print(f"⚠️ Span ignoré car dans la liste noire: {context_span}")

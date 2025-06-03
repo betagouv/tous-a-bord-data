@@ -157,4 +157,5 @@ TOKENS_ELIGIBILITE = [
     "demandeur d'emploi indemnisé",
     "demandeur d'emploi longue durée",
     "demandeur d'emploi non indemnisé",
+    "mobilité réduite",
 ]

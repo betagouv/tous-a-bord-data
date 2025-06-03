@@ -1,4 +1,5 @@
 TAG_DP_MAPPING = {
+    "mobilité réduite": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
     "accompagnant PMR": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
     "accompagnateur": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
     "adulte salarié": {"tag": None, "fournisseur": "FRANCE TRAVAIL"},
@@ -279,4 +280,7 @@ BLACK_LIST = [
     "place de la bourse",
     "actif",
     "bourse aux vélos",
+    "apprenti",
+    "stagiaire",
+    "quartier bourse",
 ]
