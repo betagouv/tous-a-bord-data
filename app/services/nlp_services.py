@@ -6,11 +6,28 @@ import spacy.util
 import streamlit as st
 from bs4 import BeautifulSoup
 from constants.entites_eligibilite import ENTITES
-from constants.tag_dp_mapping import TAG_DP_MAPPING
 from constants.tokens_eligibilite import TOKENS_ELIGIBILITE
 from spacy.matcher import Matcher, PhraseMatcher
 
+# commons
 TOKENS_ELIGIBILITE = [token.lower() for token in TOKENS_ELIGIBILITE]
+
+
+# Load the fr_core_news_lg model
+@st.cache_resource
+def load_spacy_model():
+    """Charge le modèle SpaCy de base"""
+    try:
+        nlp = spacy.load("fr_core_news_lg")
+        return nlp
+    except OSError:
+        st.error("Installation en cours...")
+        import subprocess
+
+        subprocess.run(
+            ["python", "-m", "spacy", "download", "fr_core_news_lg"]
+        )
+        return spacy.load("fr_core_news_lg")
 
 
 def extract_markdown_text(markdown_text):
@@ -23,6 +40,43 @@ def extract_markdown_text(markdown_text):
     soup = BeautifulSoup(html, "html.parser")
     raw_text = soup.get_text("\n")
     return raw_text
+
+
+def normalize_text(raw_text, nlp):
+    """Use SpaCy to normalize text (clean and structure it)"""
+    # Process text with SpaCy
+    doc = nlp(raw_text)
+    # Use SpaCy's sentence segmentation
+    paragraphs = []
+    current_paragraph = []
+    for sent in doc.sents:
+        sent_text = sent.text.strip()
+        # Skip empty sentences or those with only special characters
+        if not sent_text or re.match(r"^[-*#=_\s]+$", sent_text):
+            continue
+        if len(sent_text) > 0:
+            current_paragraph.append(sent_text)
+        # Detect paragraph end (empty line, newline)
+        if sent.text.endswith("\n\n") or sent.text.endswith("\r\n\r\n"):
+            if current_paragraph:
+                paragraphs.append(" ".join(current_paragraph))
+                current_paragraph = []
+    # Add the last paragraph if not empty
+    if current_paragraph:
+        paragraphs.append(" ".join(current_paragraph))
+    # If no paragraphs detected, create one per sentence
+    if not paragraphs and doc.sents:
+        for sent in doc.sents:
+            sent_text = sent.text.strip()
+            if sent_text and not re.match(r"^[-*#=_\s]+$", sent_text):
+                paragraphs.append(sent_text)
+    return paragraphs
+
+
+def count_tokens(text, nlp):
+    """Compte le nombre de tokens dans un texte en utilisant SpaCy"""
+    doc = nlp(text)
+    return len(doc)
 
 
 def create_transport_fare_matcher(nlp):
@@ -166,54 +220,6 @@ def create_transport_fare_matcher(nlp):
     return phrase_matcher, matcher
 
 
-# Load the fr_core_news_lg model
-@st.cache_resource
-def load_spacy_model():
-    """Charge le modèle SpaCy de base"""
-    try:
-        nlp = spacy.load("fr_core_news_lg")
-        return nlp
-    except OSError:
-        st.error("Installation en cours...")
-        import subprocess
-
-        subprocess.run(
-            ["python", "-m", "spacy", "download", "fr_core_news_lg"]
-        )
-        return spacy.load("fr_core_news_lg")
-
-
-def normalize_text(raw_text, nlp):
-    """Use SpaCy to normalize text (clean and structure it)"""
-    # Process text with SpaCy
-    doc = nlp(raw_text)
-    # Use SpaCy's sentence segmentation
-    paragraphs = []
-    current_paragraph = []
-    for sent in doc.sents:
-        sent_text = sent.text.strip()
-        # Skip empty sentences or those with only special characters
-        if not sent_text or re.match(r"^[-*#=_\s]+$", sent_text):
-            continue
-        if len(sent_text) > 0:
-            current_paragraph.append(sent_text)
-        # Detect paragraph end (empty line, newline)
-        if sent.text.endswith("\n\n") or sent.text.endswith("\r\n\r\n"):
-            if current_paragraph:
-                paragraphs.append(" ".join(current_paragraph))
-                current_paragraph = []
-    # Add the last paragraph if not empty
-    if current_paragraph:
-        paragraphs.append(" ".join(current_paragraph))
-    # If no paragraphs detected, create one per sentence
-    if not paragraphs and doc.sents:
-        for sent in doc.sents:
-            sent_text = sent.text.strip()
-            if sent_text and not re.match(r"^[-*#=_\s]+$", sent_text):
-                paragraphs.append(sent_text)
-    return paragraphs
-
-
 def filter_transport_fare(paragraphs, nlp):
     """Filter paragraphs to keep only those with eligibility criteria"""
     filtered_paragraphs = []
@@ -259,21 +265,116 @@ def filter_transport_fare(paragraphs, nlp):
     return filtered_paragraphs, relevant_sentences
 
 
-def count_tokens(text, nlp):
-    """Compte le nombre de tokens dans un texte en utilisant SpaCy"""
-    doc = nlp(text)
-    return len(doc)
-
-
-def create_mapping_matcher(nlp):
+def create_eligibility_matcher(nlp):
     """Crée un matcher pour détecter les tokens en utilisant la lemmisation"""
-    matcher = PhraseMatcher(nlp.vocab, attr="LEMMA")
-    # Créer les patterns en utilisant les lemmes
-    patterns = {}
-    for token in TAG_DP_MAPPING.keys():
-        # Traiter le token avec SpaCy pour obtenir le lemme
-        doc = nlp(token.lower())
-        # Utiliser le lemme du premier token
-        patterns[token] = doc
-    matcher.add("TOKEN", list(patterns.values()))
-    return matcher
+    # Configure the phrase matcher for the eligibility criteria
+    phrase_matcher = PhraseMatcher(nlp.vocab, attr="LEMMA")
+    # Add the patterns for the eligibility terms
+    patterns = [nlp(text) for text in TOKENS_ELIGIBILITE]
+    phrase_matcher.add("CRITERE_ELIGIBILITE", patterns)
+
+    # Configure the regex matcher for the patterns
+    matcher = Matcher(nlp.vocab)
+    # Patterns for ages
+    matcher.add(
+        "AGE",
+        [
+            # Detect : "18 ans", "25 ans", etc.
+            [{"TEXT": {"REGEX": r"\d+"}}, {"LOWER": "ans"}],
+            # Detect : "18 ans et plus", "25 ans et plus", etc.
+            [
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+                {"LOWER": "et"},
+                {"LOWER": "plus"},
+            ],
+            # Detect : "moins de 18 ans"
+            [
+                {"LOWER": "moins"},
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "plus de 18 ans"
+            [
+                {"LOWER": "plus"},
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "entre 18 et 25 ans"
+            [
+                {"LOWER": "entre"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "et"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "de 18 à 25 ans"
+            [
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "à"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "à partir de 18 ans"
+            [
+                {"LOWER": "à"},
+                {"LOWER": "partir"},
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+            # Detect : "18/25 ans"
+            [
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"TEXT": "/"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "ans"},
+            ],
+        ],
+    )
+    # Patterns pour quotient familial
+    matcher.add(
+        "QF",
+        [
+            # "quotient familial inférieur à 1",
+            # "quotient familial supérieur à 1"
+            [
+                {"LOWER": {"IN": ["qf", "quotient familial"]}},
+                {
+                    "LOWER": {
+                        "IN": [
+                            "inférieur",
+                            "supérieur",
+                            ">",
+                            "<",
+                            ">=",
+                            "<=",
+                        ]
+                    }
+                },
+                {"LOWER": "à"},
+                {"TEXT": {"REGEX": r"\d+"}},
+            ],
+            # Detect : "QF de 1 à 2"
+            [
+                {"LOWER": {"IN": ["qf", "quotient familial"]}},
+                {"LOWER": "de"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "à"},
+                {"TEXT": {"REGEX": r"\d+"}},
+            ],
+            # Detect : "QF entre 1 et 2"
+            [
+                {"LOWER": {"IN": ["qf", "quotient familial"]}},
+                {"LOWER": "entre"},
+                {"TEXT": {"REGEX": r"\d+"}},
+                {"LOWER": "et"},
+                {"TEXT": {"REGEX": r"\d+"}},
+            ],
+        ],
+    )
+
+    return phrase_matcher, matcher

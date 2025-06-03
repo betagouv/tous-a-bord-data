@@ -14,6 +14,7 @@ nest_asyncio.apply()
 
 import tiktoken
 from anthropic import Anthropic
+from constants.entites_eligibilite import ENTITES
 from constants.keywords import DEFAULT_KEYWORDS
 from constants.tag_dp_mapping import TAG_DP_MAPPING
 from dotenv import load_dotenv
@@ -32,7 +33,7 @@ from services.llm_services import (
     call_scaleway,
 )
 from services.nlp_services import (
-    create_mapping_matcher,
+    create_eligibility_matcher,
     extract_markdown_text,
     filter_transport_fare,
     load_spacy_model,
@@ -97,7 +98,9 @@ def filter_nlp(
         run = get_current_run_tree()
         st.session_state.run_ids["filter"] = run.id
 
-        with st.spinner("Chargement du modèle SpaCy..."):
+        with st.spinner(
+            "Chargement du modèle d'analyse automatique du langage..."
+        ):
             nlp = load_spacy_model()
             raw_text = extract_markdown_text(content)
             paragraphs = normalize_text(raw_text, nlp)
@@ -119,64 +122,88 @@ def format_tags(text: str, nlp, siren: str, name: str) -> List[str]:
     run = get_current_run_tree()
     st.session_state.run_ids["format_tags"] = run.id
     # Créer le matcher
-    matcher = create_mapping_matcher(nlp)
+    phrase_matcher, matcher = create_eligibility_matcher(nlp)
 
     # Traiter le texte
     doc = nlp(text)
+    # Chercher les critères dans tout le paragraphe
+    matches_phrase = phrase_matcher(doc)
+    matches_entites = any(token.text in ENTITES for token in doc)
 
     # Trouver les correspondances et récupérer les tags uniques
-    matches = matcher(doc)
-    tags = set()
-    for _, start, end in matches:
-        token_span = doc[start:end]
-        token_lemma = token_span[
-            0
-        ].lemma_.lower()  # Utiliser le lemme du premier token
-        # Chercher la clé correspondante dans le mapping
-        for mapping_key, mapping_value in TAG_DP_MAPPING.items():
-            # Comparer les lemmes
-            mapping_doc = nlp(mapping_key.lower())
-            if mapping_doc[
+    tags_uniques = set()
+    debug_matches = {}  # Pour stocker les correspondances texte -> tag
+
+    # Créer un dictionnaire avec les clés en minuscules et leurs lemmes
+    tag_dp_mapping_lemmas = {}
+    for k, v in TAG_DP_MAPPING.items():
+        if k and v and v.get("tag"):  # Vérifier que la clé et le tag existent
+            doc_key = nlp(k.lower())
+            lemma = doc_key[
                 0
-            ].lemma_.lower() == token_lemma and mapping_value.get("tag"):
-                tags.add(mapping_value["tag"])
-                break
+            ].lemma_.lower()  # Prendre le lemme du premier token
+            tag_dp_mapping_lemmas[lemma] = v
 
-    return sorted(list(filter(None, tags)))
+    # Pour les matches de phrases
+    for match_id, start, end in matches_phrase:
+        span = doc[start:end]
+        if not span.text:  # Vérifier que le span n'est pas vide
+            continue
+        span_doc = nlp(span.text.lower())
+        span_lemma = span_doc[0].lemma_.lower()
+        if span_lemma in tag_dp_mapping_lemmas:
+            tag = tag_dp_mapping_lemmas[span_lemma]["tag"]
+            if tag:  # Vérifier que le tag n'est pas None
+                tags_uniques.add(tag)
+                if tag not in debug_matches:
+                    debug_matches[tag] = []
+                debug_matches[tag].append(
+                    f"Phrase: '{span.text}' (lemme: {span_lemma})"
+                )
 
+    # Pour les entités
+    if matches_entites:
+        for token in doc:
+            if token.text in ENTITES:
+                token_lemma = token.lemma_.lower()
+                if token_lemma in tag_dp_mapping_lemmas:
+                    tag = tag_dp_mapping_lemmas[token_lemma]["tag"]
+                    if tag:  # Vérifier que le tag n'est pas None
+                        tags_uniques.add(tag)
+                        if tag not in debug_matches:
+                            debug_matches[tag] = []
+                        debug_matches[tag].append(
+                            f"Entité: '{token.text}' (lemme: {token_lemma})"
+                        )
 
-@traceable
-def format_data_providers(text: str, nlp, siren: str, name: str) -> List[str]:
-    """Extrait les fournisseurs de données uniques à partir du texte"""
-    run = get_current_run_tree()
-    st.session_state.run_ids["format_data_providers"] = run.id
-    # Créer le matcher
-    matcher = create_mapping_matcher(nlp)
-
-    # Traiter le texte
-    doc = nlp(text)
-
-    # Trouver les correspondances et récupérer les fournisseurs uniques
+    # Pour les matchs spéciaux (AGE et QF)
     matches = matcher(doc)
-    providers = set()
-    for _, start, end in matches:
-        token_span = doc[start:end]
-        token_lemma = token_span[
-            0
-        ].lemma_.lower()  # Utiliser le lemme du premier token
-        # Chercher la clé correspondante dans le mapping
-        for mapping_key, mapping_value in TAG_DP_MAPPING.items():
-            # Comparer les lemmes
-            mapping_doc = nlp(mapping_key.lower())
-            if mapping_doc[
-                0
-            ].lemma_.lower() == token_lemma and mapping_value.get(
-                "fournisseur"
-            ):
-                providers.add(mapping_value["fournisseur"])
-                break
+    special_tags = {"AGE": "Age", "QF": "Quotient Familial"}
+    for match_id, start, end in matches:
+        match_type = nlp.vocab.strings[match_id]
+        if match_type in special_tags:
+            tag = special_tags[match_type]
+            if tag:  # Vérifier que le tag n'est pas None
+                span = doc[start:end]
+                tags_uniques.add(tag)
+                if tag not in debug_matches:
+                    debug_matches[tag] = []
+                debug_matches[tag].append(
+                    f"Match spécial {match_type}: '{span.text}'"
+                )
 
-    return sorted(list(filter(None, providers)))
+    # Afficher les correspondances pour le debugging
+    if debug_matches:
+        st.write("### 🔍 Détails des correspondances trouvées:")
+        for tag in sorted(
+            tag for tag in debug_matches.keys() if tag is not None
+        ):
+            st.markdown(f"**Tag : {tag}**")
+            for match in debug_matches[tag]:
+                st.markdown(f"- {match}")
+            st.markdown("---")
+
+    return sorted(list(tag for tag in tags_uniques if tag is not None))
 
 
 def show_evaluation_interface(step_name: str, content: str) -> None:
