@@ -27,9 +27,11 @@ repos:
         args: ["--profile", "black", "--line-length", "79"]
   - repo: local
     hooks:
-      - id: pytest
-        name: pytest
-        entry: pytest
+      - id: pytest-docker
+        name: Run all tests in Docker
+        entry: bash
+        args: ['-c', 'docker-compose up -d streamlit && docker-compose exec -T streamlit pytest /app/tests/ -v']
         language: system
-        types: [python]
         pass_filenames: false
+        always_run: true
+        files: ^tests/.*\.py$|^.*\.py$  # Déclenche sur les changements de tests ou code

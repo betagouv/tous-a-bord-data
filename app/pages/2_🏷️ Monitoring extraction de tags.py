@@ -43,6 +43,7 @@ from sqlalchemy import create_engine, text
 from star_ratings import star_ratings
 from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs
+from utils.streamlit_utils import scroll_to_bottom
 
 # Configuration de la page pour utiliser plus de largeur
 st.set_page_config(page_title="Extraction des tags", layout="wide")
@@ -492,6 +493,7 @@ if selected_aom:
                     st.markdown(f"**{tag}** détecté dans :")
                     st.markdown(match_info, unsafe_allow_html=True)
                     st.markdown("---")
+                scroll_to_bottom()
 
         # Affichage des fournisseurs
         if "providers" in st.session_state:
@@ -514,6 +516,7 @@ if selected_aom:
                     st.markdown(f"**{provider}** détecté dans :")
                     st.markdown(match_info, unsafe_allow_html=True)
                     st.markdown("---")
+                scroll_to_bottom()
 
         # Interface d'évaluation combinée
         if "tags" in st.session_state and "providers" in st.session_state:

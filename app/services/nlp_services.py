@@ -13,6 +13,21 @@ from spacy.matcher import Matcher, PhraseMatcher
 # commons
 TOKENS_ELIGIBILITE = [token.lower() for token in TOKENS_ELIGIBILITE]
 
+DEBUG_KEYWORD = "france travail"
+
+
+def debug_targeted(keyword: str, step: str, additional_info: str = ""):
+    """
+    Fonction de debug ciblée simple
+
+    Args:
+        keyword: Mot-clé à rechercher dans additional_info
+        step: Étape du processus
+        additional_info: Information à afficher (sera vérifiée pour le keyword)
+    """
+    if keyword.lower() in additional_info.lower():
+        print(f"🔍 DEBUG {step}: {additional_info}")
+
 
 # Load the fr_core_news_lg model
 @st.cache_resource
@@ -36,12 +51,17 @@ def get_cached_mapping_lemmas():
     """Cache le mapping lemmatisé pour éviter de le recalculer"""
     nlp = load_spacy_model()
     tag_dp_mapping_lemmas = {}
+
     for k, v in TAG_DP_MAPPING.items():
         if k and v:
             doc_key = nlp(k.lower().replace("'", "'"))
             lemmas = [token.lemma_.lower() for token in doc_key]
             lemma_key = " ".join(lemmas)
+
+            debug_targeted(DEBUG_KEYWORD, "MAPPING", f"'{k}' -> '{lemma_key}'")
+
             tag_dp_mapping_lemmas[lemma_key] = v
+
     return tag_dp_mapping_lemmas
 
 
@@ -95,22 +115,24 @@ def count_tokens(text, nlp):
 
 
 def create_eligibility_matcher(nlp):
-    """Crée un matcher pour détecter les tokens
-    en utilisant la lemmisation"""
+    """Crée un matcher pour détecter les tokens en utilisant la lemmisation"""
     # Configure the phrase matcher for the eligibility criteria
     phrase_matcher = PhraseMatcher(nlp.vocab, attr="LEMMA")
     # Add the patterns for the eligibility terms
     patterns = []
+
     for text in TOKENS_ELIGIBILITE:
-        # Normaliser avant lemmatisation
         doc = nlp(text.lower())
+
+        debug_targeted(DEBUG_KEYWORD, "MATCHER", f"Pattern ajouté: '{text}'")
+
         patterns.append(doc)
 
     phrase_matcher.add("CRITERE_ELIGIBILITE", patterns)
 
     # Configure the regex matcher for the patterns
     matcher = Matcher(nlp.vocab)
-    # Patterns for ages
+    # ... reste du code inchangé pour les patterns AGE et QF ...
     matcher.add(
         "AGE",
         [
@@ -295,24 +317,80 @@ def filter_transport_fare(paragraphs, nlp):
 
 
 def get_matches_and_lemmas(text: str, nlp) -> tuple:
-    """Extrait les matches et les lemmes à partir du texte.
+    """Extrait les matches et les lemmes à partir du texte."""
 
-    Args:
-        text: Le texte à analyser
-        nlp: Le modèle SpaCy chargé
+    if "france" in text.lower() or "travail" in text.lower():
+        debug_targeted(
+            DEBUG_KEYWORD,
+            "INPUT",
+            "Texte analysé contient 'france' ou 'travail'",
+        )
 
-    Returns:
-        tuple: (doc, matches_phrase, matches_entites,
-        matches, tag_dp_mapping_lemmas)
-    """
+        # Afficher les extraits pertinents
+        lines = text.split("\n")
+        for i, line in enumerate(lines):
+            if "france" in line.lower() and "travail" in line.lower():
+                debug_targeted(
+                    DEBUG_KEYWORD, "INPUT", f"Ligne {i}: {line.strip()}"
+                )
+
     # Créer le matcher
     phrase_matcher, matcher = create_eligibility_matcher(nlp)
     text = text.replace("'", "'")
     doc = nlp(text)
 
+    # DEBUG: Vérifier comment "France Travail" est lemmatisé dans le texte
+    for i, token in enumerate(doc):
+        if (
+            token.text.lower() == "france"
+            and i + 1 < len(doc)
+            and doc[i + 1].text.lower() == "travail"
+        ):
+            next_token = doc[i + 1]
+            debug_targeted(
+                DEBUG_KEYWORD,
+                "LEMMA_CHECK",
+                f"Dans texte: '{token.text} {next_token.text}' -> "
+                f"lemmes: {token.lemma_.lower()}"
+                f" {next_token.lemma_.lower()}",
+            )
+
     # Chercher les critères
     matches_phrase = phrase_matcher(doc)
-    matches_entites = any(token.text in ENTITES for token in doc)
+
+    debug_targeted(
+        DEBUG_KEYWORD,
+        "MATCHES",
+        f"Nombre de matches phrase: {len(matches_phrase)}",
+    )
+
+    # DEBUG: Test manuel du PhraseMatcher
+    test_doc = nlp("France Travail")
+    test_matches = phrase_matcher(test_doc)
+    debug_targeted(
+        DEBUG_KEYWORD,
+        "TEST_MATCH",
+        f"Test sur 'France Travail' seul: {len(test_matches)} matches",
+    )
+
+    # CORRECTION: Détection d'entités multi-tokens
+    matches_entites = False
+    doc_text = doc.text
+
+    for entite in ENTITES:
+        if entite in doc_text:
+            matches_entites = True
+            debug_targeted(
+                DEBUG_KEYWORD,
+                "ENTITE_DETECTION",
+                f"Entité trouvée dans texte: '{entite}'",
+            )
+            break
+
+    debug_targeted(
+        DEBUG_KEYWORD, "ENTITE_CHECK", f"matches_entites = {matches_entites}"
+    )
+
     matches = matcher(doc)
 
     # Utiliser le mapping mis en cache
@@ -322,18 +400,7 @@ def get_matches_and_lemmas(text: str, nlp) -> tuple:
 
 
 def get_highlighted_sentence(doc, start, end, start_char=None, text=None):
-    """Trouve et met en surbrillance une partie de phrase.
-
-    Args:
-        doc: Le document spaCy
-        start: Index de début du token
-        end: Index de fin du token
-        start_char: Position de début du caractère (optionnel)
-        text: Texte à mettre en surbrillance (optionnel)
-
-    Returns:
-        str: La phrase avec le texte surligné en HTML
-    """
+    """Trouve et met en surbrillance une partie de phrase."""
     # Trouver la phrase contenant le match
     sent = next(
         (
@@ -377,21 +444,7 @@ def extract_from_matches(
     nlp,
     field,
 ) -> tuple:
-    """Extrait les valeurs uniques et les matches de
-    debug à partir des matches.
-
-    Args:
-        doc: Le document SpaCy
-        matches_phrase: Les matches de phrases
-        matches_entites: Les matches d'entités
-        matches: Les matches regex
-        tag_dp_mapping_lemmas: Le dictionnaire des lemmes
-        nlp: Le modèle SpaCy
-        field: Le champ à extraire du TAG_DP_MAPPING ("tag" ou "fournisseur")
-
-    Returns:
-        tuple: (valeurs_uniques, debug_matches)
-    """
+    """Extrait les valeurs uniques et les matches de debug."""
     valeurs_uniques = set()
     debug_matches = {}
 
@@ -416,6 +469,16 @@ def extract_from_matches(
         span_lemmas = [token.lemma_.lower() for token in span]
         span_text = " ".join(span_lemmas)
 
+        # Debug ciblé
+        mapping_result = span_text in tag_dp_mapping_lemmas
+
+        debug_targeted(
+            DEBUG_KEYWORD,
+            "SPAN",
+            f"Span '{span.text}' -> lemmatisé '{span_text}' -> "
+            f"trouvé: {mapping_result}",
+        )
+
         # Chercher dans le mapping pré-calculé
         if span_text in tag_dp_mapping_lemmas:
             valeur = tag_dp_mapping_lemmas[span_text].get(field)
@@ -427,17 +490,69 @@ def extract_from_matches(
 
     # Pour les entités
     if matches_entites:
-        for token in doc:
-            if token.text in ENTITES:
-                # Lemmatiser l'entité (optimisé)
-                token_lemma_key = token.lemma_.lower()
-                if token_lemma_key in tag_dp_mapping_lemmas:
-                    valeur = tag_dp_mapping_lemmas[token_lemma_key].get(field)
+        doc_text = doc.text
+
+        for entite in ENTITES:
+            if entite in doc_text:
+                debug_targeted(
+                    DEBUG_KEYWORD, "ENTITE", f"Entité trouvée: '{entite}'"
+                )
+
+                # Chercher dans TAG_DP_MAPPING directement
+                entity_mapping = None
+                for k, v in TAG_DP_MAPPING.items():
+                    if k and k.lower() == entite.lower():
+                        entity_mapping = v
+                        break
+
+                is_mapping_found = entity_mapping is not None
+                debug_targeted(
+                    DEBUG_KEYWORD,
+                    "ENTITE",
+                    f"Entité '{entite}' -> mapping trouvé: {is_mapping_found}",
+                )
+
+                if entity_mapping:
+                    valeur = entity_mapping.get(field)
                     if valeur and valeur not in debug_matches:
                         valeurs_uniques.add(valeur)
-                        debug_matches[valeur] = get_highlighted_sentence(
-                            doc, token.i, token.i + 1, token.idx, token.text
-                        )
+
+                        # Trouver les tokens correspondant à l'entité
+                        entite_tokens = entite.split()
+                        token_start = None
+                        token_end = None
+
+                        # Chercher la séquence de tokens dans le document
+                        for i in range(len(doc) - len(entite_tokens) + 1):
+                            # Vérifier si la séquence correspond
+                            match = True
+                            for j, entite_token in enumerate(entite_tokens):
+                                if (
+                                    doc[i + j].text.lower()
+                                    != entite_token.lower()
+                                ):
+                                    match = False
+                                    break
+
+                            if match:
+                                token_start = i
+                                token_end = i + len(entite_tokens)
+                                break
+
+                        # Utiliser get_highlighted_sentence
+                        if token_start is not None and token_end is not None:
+                            debug_matches[valeur] = get_highlighted_sentence(
+                                doc, token_start, token_end
+                            )
+                        else:
+                            # Fallback : highlighting simple
+                            start_char = doc_text.find(entite)
+                            if start_char != -1:
+                                before = doc_text[:start_char]
+                                after = doc_text[start_char + len(entite) :]
+                                highlighted = f"{before}<mark>{entite}</mark>"
+                                highlighted += after
+                                debug_matches[valeur] = highlighted
 
     # Pour les matchs spéciaux (AGE et QF)
     if field == "tag":  # Ces matchs spéciaux ne concernent que les tags
