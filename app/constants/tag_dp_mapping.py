@@ -285,5 +285,6 @@ BLACK_LIST = [
     "RSAM",
     "rsam",
     "espace jeunes",
-    "les militaires s'empressent",
+    "les militaires s’empressent",
+    "5 ans de la Stabus",
 ]

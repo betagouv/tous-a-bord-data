@@ -386,11 +386,8 @@ def extract_from_matches(
     valeurs_uniques = set()
     debug_matches = {}
 
-    for match_id, start, end in matches_phrase:
-        span = doc[start:end]
-        if not span.text:
-            continue
-
+    # Helper function to check if a span is blacklisted
+    def is_blacklisted(start, end):
         context_window = 5
         start_context = max(0, start - context_window)
         end_context = min(len(doc), end + context_window)
@@ -399,7 +396,6 @@ def extract_from_matches(
 
         # Check if black listed word is present as a whole word
         # not as a subchain
-        blacklisted = False
         for black_term in BLACK_LIST:
             pattern = r"\b" + re.escape(black_term) + r"\b"
             if re.search(pattern, context_span, re.IGNORECASE):
@@ -407,10 +403,15 @@ def extract_from_matches(
                     "⚠️ Span ignoré car contient le mot entier",
                     f"'{black_term}' dans: {context_span}",
                 )
-                blacklisted = True
-                break
+                return True
+        return False
 
-        if blacklisted:
+    for match_id, start, end in matches_phrase:
+        span = doc[start:end]
+        if not span.text:
+            continue
+
+        if is_blacklisted(start, end):
             continue
 
         span_lemmas = [token.lemma_.lower() for token in span]
@@ -429,6 +430,10 @@ def extract_from_matches(
             match_type = nlp.vocab.strings[match_id]
 
             if match_type.startswith("ENTITE_"):
+                # Check blacklist for entity matches
+                if is_blacklisted(start, end):
+                    continue
+
                 entite = match_type[7:]
 
                 entity_mapping = None
@@ -455,6 +460,10 @@ def extract_from_matches(
         for match_id, start, end in matches:
             match_type = nlp.vocab.strings[match_id]
             if match_type in special_tags:
+                # Check blacklist for special pattern matches
+                if is_blacklisted(start, end):
+                    continue
+
                 tag = special_tags[match_type]
                 if tag and tag not in debug_matches:
                     valeurs_uniques.add(tag)
