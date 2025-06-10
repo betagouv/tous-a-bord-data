@@ -1,9 +1,15 @@
 TAG_DP_MAPPING = {
     "mobilité réduite": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
-    "accompagnant PMR": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
-    "accompagnateur": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
     "adulte salarié": {"tag": None, "fournisseur": "FRANCE TRAVAIL"},
     "allocataire": {"tag": "Quotient Familial", "fournisseur": "CNAF / MSA"},
+    "accompagnant PMR": {
+        "tag": "Statut handicapé",
+        "fournisseur": "CNSA",
+    },
+    "accompagnateur PMR": {
+        "tag": "Statut handicapé",
+        "fournisseur": "CNSA",
+    },
     "Allocation Adulte Handicapé": {
         "tag": "Statut handicapé",
         "fournisseur": "CNSA",
@@ -25,8 +31,6 @@ TAG_DP_MAPPING = {
     "apprenti": {"tag": "Statut étudiant", "fournisseur": "CNOUS"},
     "asile": {"tag": None, "fournisseur": None},
     "autonome fiscalement": {"tag": None, "fournisseur": None},
-    "autonome marche": {"tag": None, "fournisseur": None},
-    "avenir Jeunes": {"tag": None, "fournisseur": None},
     "aveugle": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
     "ayant-droit": {"tag": None, "fournisseur": None},
     "baccalauréat": {"tag": "Statut élève", "fournisseur": None},
@@ -34,7 +38,6 @@ TAG_DP_MAPPING = {
     "barre rouge": {"tag": None, "fournisseur": None},
     "barres bleues": {"tag": None, "fournisseur": None},
     "barres rouges": {"tag": None, "fournisseur": None},
-    "bénéficiaire": {"tag": None, "fournisseur": None},
     "besoin accompagnement": {
         "tag": "Statut handicapé",
         "fournisseur": "CNSA",
@@ -65,7 +68,6 @@ TAG_DP_MAPPING = {
     "contrat Engagement Jeune": {"tag": None, "fournisseur": None},
     "contrat Unique Insertion": {"tag": None, "fournisseur": None},
     "Corps Européen Solidarité": {"tag": None, "fournisseur": None},
-    "couple": {"tag": None, "fournisseur": None},
     "crédit impôt": {"tag": None, "fournisseur": None},
     "déficient visuel auditif": {
         "tag": "Statut handicapé",
@@ -118,15 +120,10 @@ TAG_DP_MAPPING = {
         "tag": "Statut handicapé",
         "fournisseur": "CNSA",
     },
-    "indemnisé": {
-        "tag": "Demandeur d'emploi",
-        "fournisseur": "FRANCE TRAVAIL",
-    },
     "indemnité journalière": {
         "tag": "Demandeur d'emploi",
         "fournisseur": "FRANCE TRAVAIL",
     },
-    "indemnité": {"tag": None, "fournisseur": None},
     "insertion": {"tag": None, "fournisseur": None},
     "interne enfant": {"tag": None, "fournisseur": None},
     "invalide civil": {"tag": "Statut handicapé", "fournisseur": "CNSA"},
@@ -265,7 +262,6 @@ TAG_DP_MAPPING = {
     "PDE": {"tag": None, "fournisseur": None},
     "PDIE": {"tag": None, "fournisseur": None},
     "PEC": {"tag": None, "fournisseur": None},
-    "PMR": {"tag": None, "fournisseur": None},
     "QF": {"tag": "Quotient Familial", "fournisseur": "CNAF / MSA"},
     "RFR": {"tag": None, "fournisseur": None},
     "RSA": {"tag": "RSA", "fournisseur": "CNAF / MSA"},
@@ -288,4 +284,6 @@ BLACK_LIST = [
     "terminal ",
     "RSAM",
     "rsam",
+    "espace jeunes",
+    "les militaires s'empressent",
 ]

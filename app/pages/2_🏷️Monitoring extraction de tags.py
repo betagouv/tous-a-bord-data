@@ -36,6 +36,23 @@ from utils.db_utils import get_postgres_cs
 # Configuration de la page pour utiliser plus de largeur
 st.set_page_config(page_title="Extraction des tags", layout="wide")
 
+# Ajouter du CSS pour les conteneurs scrollables
+st.markdown(
+    """
+<style>
+.scrollable-container {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid #e0e0e0;
+    border-radius: 5px;
+    margin-bottom: 20px;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 load_dotenv()
 
 
@@ -236,6 +253,12 @@ selected_aom = st.selectbox(
         st.session_state.pop("filtered_contents", None),
         st.session_state.pop("tags", None),
         st.session_state.pop("providers", None),
+        st.session_state.pop(
+            "tags_explanations", None
+        ),  # Ajout de cette ligne
+        st.session_state.pop(
+            "providers_explanations", None
+        ),  # Ajout de cette ligne
         st.session_state.pop("run_ids", {}),  # Réinitialiser les run_ids
     ),
 )
@@ -419,7 +442,7 @@ if selected_aom:
                 st.stop()
             filtered_result = filter_nlp(
                 scraped_content,
-                "custom_filter_v2",
+                "custom_filter_v3",
                 n_siren_aom,
                 nom_aom,
             )
@@ -485,20 +508,21 @@ if selected_aom:
 
                     # Explications des tags
                     if "tags_explanations" in st.session_state:
-                        # Créer un conteneur avec une hauteur maximale et une barre de défilement
-                        with st.container():
-                            st.markdown(
-                                "#### ℹ️ Explications des tags détectés"
+                        st.markdown("#### ℹ️ Explications des tags détectés")
+                        # Créer un conteneur HTML scrollable
+                        explanation_html = "<div class='scrollable-container'>"
+                        for (
+                            tag,
+                            match_info,
+                        ) in st.session_state.tags_explanations[
+                            "matches"
+                        ].items():
+                            explanation_html += (
+                                f"<p><strong>{tag}</strong> détecté dans :</p>"
                             )
-                            for (
-                                tag,
-                                match_info,
-                            ) in st.session_state.tags_explanations[
-                                "matches"
-                            ].items():
-                                st.markdown(f"**{tag}** détecté dans :")
-                                st.markdown(match_info, unsafe_allow_html=True)
-                                st.markdown("---")
+                            explanation_html += f"{match_info}<hr>"
+                        explanation_html += "</div>"
+                        st.markdown(explanation_html, unsafe_allow_html=True)
 
             # Onglet des fournisseurs
             with tabs[1]:
@@ -513,20 +537,21 @@ if selected_aom:
 
                     # Explications des fournisseurs
                     if "providers_explanations" in st.session_state:
-                        # Créer un conteneur avec une hauteur maximale et une barre de défilement
-                        with st.container():
-                            st.markdown(
-                                "#### ℹ️ Explications des fournisseurs détectés"
-                            )
-                            for (
-                                provider,
-                                match_info,
-                            ) in st.session_state.providers_explanations[
-                                "matches"
-                            ].items():
-                                st.markdown(f"**{provider}** détecté dans :")
-                                st.markdown(match_info, unsafe_allow_html=True)
-                                st.markdown("---")
+                        st.markdown(
+                            "#### ℹ️ Explications des fournisseurs détectés"
+                        )
+                        # Créer un conteneur HTML scrollable
+                        explanation_html = "<div class='scrollable-container'>"
+                        for (
+                            provider,
+                            match_info,
+                        ) in st.session_state.providers_explanations[
+                            "matches"
+                        ].items():
+                            explanation_html += f"<p><strong>{provider}</strong> détecté dans :</p>"
+                            explanation_html += f"{match_info}<hr>"
+                        explanation_html += "</div>"
+                        st.markdown(explanation_html, unsafe_allow_html=True)
 
             # Onglet d'évaluation
             with tabs[2]:
