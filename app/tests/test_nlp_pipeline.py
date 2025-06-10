@@ -113,6 +113,8 @@ def test_detection_positive(nlp, text, expected_tags, expected_providers):
         ),
         # Test texte neutre
         ("Horaires d'ouverture : lundi au vendredi de 9h à 17h", [], []),
+        ("D.Jacquet RSAM Rôseau", ["RSA"], ["CNAF / MSA"]),
+        ("RSAM Litôral", ["RSA"], ["CNAF / MSA"]),
     ],
 )
 def test_detection_negative(nlp, text, forbidden_tags, forbidden_providers):

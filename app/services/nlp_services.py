@@ -2,7 +2,6 @@ import re
 
 import markdown
 import spacy
-import spacy.util
 import streamlit as st
 from bs4 import BeautifulSoup
 from constants.entites_eligibilite import ENTITES
@@ -111,7 +110,21 @@ def create_eligibility_matcher(nlp):
 
     # Configure the regex matcher for the patterns
     matcher = Matcher(nlp.vocab)
-    # ... reste du code inchangé pour les patterns AGE et QF ...
+
+    # Add entites to the matcher
+    # Note: multi-tokens ENTITES are handled
+    for entite in ENTITES:
+        tokens = entite.split()
+        if len(tokens) > 1:
+            pattern = []
+            for token in tokens:
+                pattern.append({"LOWER": token.lower()})
+        else:
+            # monotoken ENTITES
+            pattern = [{"TEXT": entite}]
+
+        matcher.add(f"ENTITE_{entite}", [pattern])
+
     matcher.add(
         "AGE",
         [
@@ -218,10 +231,10 @@ def create_eligibility_matcher(nlp):
 
 def create_transport_fare_matcher(nlp):
     """Crée un matcher pour les critères de transport"""
-    # Récupérer les matchers de base pour l'éligibilité
+    # Retrieve the eligibility matcher
     phrase_matcher, matcher = create_eligibility_matcher(nlp)
 
-    # Ajouter les patterns spécifiques aux tarifs
+    # Add fares patterns to the matcher
     matcher.add(
         "TARIF",
         [
@@ -256,7 +269,6 @@ def filter_transport_fare(paragraphs, nlp):
     filtered_paragraphs = []
     relevant_sentences = []
 
-    # Créer les matchers une seule fois
     phrase_matcher, matcher = create_transport_fare_matcher(nlp)
 
     for paragraph in paragraphs:
@@ -264,30 +276,41 @@ def filter_transport_fare(paragraphs, nlp):
 
         matches_phrase = phrase_matcher(doc)
         matches_regex = matcher(doc)
-        matches_entites = any(token.text in ENTITES for token in doc)
 
-        # Si on trouve au moins un match, le paragraphe est pertinent
+        matches_entites = False
+        for match_id, start, _ in matches_regex:
+            match_type = nlp.vocab.strings[match_id]
+            if match_type.startswith("ENTITE_"):
+                matches_entites = True
+                break
+
+        # Paragraphs with matches
         if matches_phrase or matches_regex or matches_entites:
             filtered_paragraphs.append(paragraph)
-            # Ajouter les phrases qui contiennent les matches
+            # Add sentences with matches
             for sent in doc.sents:
                 sent_start = sent.start
                 sent_end = sent.end
 
-                # Vérifier si la phrase contient un match du phrase_matcher
                 has_phrase_match = any(
                     sent_start <= start < sent_end
                     for _, start, _ in matches_phrase
                 )
 
-                # Vérifier si la phrase contient un match du regex_matcher
                 has_regex_match = any(
                     sent_start <= start < sent_end
                     for _, start, _ in matches_regex
                 )
 
-                # Vérifier si la phrase contient une entité
-                has_entity = any(token.text in ENTITES for token in sent)
+                has_entity = False
+                for match_id, start, end in matches_regex:
+                    match_type = nlp.vocab.strings[match_id]
+                    if (
+                        match_type.startswith("ENTITE_")
+                        and sent_start <= start < sent_end
+                    ):
+                        has_entity = True
+                        break
 
                 if has_phrase_match or has_regex_match or has_entity:
                     relevant_sentences.append(sent.text)
@@ -297,23 +320,21 @@ def filter_transport_fare(paragraphs, nlp):
 
 def get_matches_and_lemmas(text: str, nlp) -> tuple:
     """Extrait les matches et les lemmes à partir du texte."""
-    # Créer le matcher
+
     phrase_matcher, matcher = create_eligibility_matcher(nlp)
     text = text.replace("'", "'")
     doc = nlp(text)
 
-    # Chercher les critères
     matches_phrase = phrase_matcher(doc)
-    matches_entites = False
-    doc_text = doc.text
-
-    for entite in ENTITES:
-        if entite in doc_text:
-            matches_entites = True
-            break
     matches = matcher(doc)
 
-    # Utiliser le mapping mis en cache
+    matches_entites = False
+    for match_id, _, _ in matches:
+        match_type = nlp.vocab.strings[match_id]
+        if match_type.startswith("ENTITE_"):
+            matches_entites = True
+            break
+
     tag_dp_mapping_lemmas = get_cached_mapping_lemmas()
 
     return doc, matches_phrase, matches_entites, matches, tag_dp_mapping_lemmas
@@ -321,7 +342,6 @@ def get_matches_and_lemmas(text: str, nlp) -> tuple:
 
 def get_highlighted_sentence(doc, start, end, start_char=None, text=None):
     """Trouve et met en surbrillance une partie de phrase."""
-    # Trouver la phrase contenant le match
     sent = next(
         (
             sent
@@ -334,14 +354,12 @@ def get_highlighted_sentence(doc, start, end, start_char=None, text=None):
     if not sent:
         return text if text else doc[start:end].text
 
-    # Si start_char n'est pas fourni, le calculer à partir du span
     if start_char is None:
         start_char = doc[start].idx
         end_char = doc[end - 1].idx + len(doc[end - 1].text)
     else:
         end_char = start_char + len(text)
 
-    # Créer la phrase avec la partie matchée en surbrillance
     before = sent.text[: start_char - sent.start_char]
     match = (
         text
@@ -368,28 +386,36 @@ def extract_from_matches(
     valeurs_uniques = set()
     debug_matches = {}
 
-    # Pour les matches de phrases
     for match_id, start, end in matches_phrase:
         span = doc[start:end]
-        if not span.text:  # Vérifier que le span n'est pas vide
+        if not span.text:
             continue
 
-        # Vérification du contexte pour les mots sensibles
-        context_window = 5  # Nombre de tokens avant/après à vérifier
+        context_window = 5
         start_context = max(0, start - context_window)
         end_context = min(len(doc), end + context_window)
         context_span = doc[start_context:end_context].text.lower()
         context_span = re.sub(r"\s+", " ", context_span).strip()
 
-        if any(black_term in context_span for black_term in BLACK_LIST):
-            print(f"⚠️ Span ignoré car dans la liste noire: {context_span}")
+        # Check if black listed word is present as a whole word
+        # not as a subchain
+        blacklisted = False
+        for black_term in BLACK_LIST:
+            pattern = r"\b" + re.escape(black_term) + r"\b"
+            if re.search(pattern, context_span, re.IGNORECASE):
+                print(
+                    "⚠️ Span ignoré car contient le mot entier",
+                    f"'{black_term}' dans: {context_span}",
+                )
+                blacklisted = True
+                break
+
+        if blacklisted:
             continue
 
-        # Lemmatiser le span (optimisé)
         span_lemmas = [token.lemma_.lower() for token in span]
         span_text = " ".join(span_lemmas)
 
-        # Chercher dans le mapping pré-calculé
         if span_text in tag_dp_mapping_lemmas:
             valeur = tag_dp_mapping_lemmas[span_text].get(field)
             if valeur and valeur not in debug_matches:
@@ -398,13 +424,13 @@ def extract_from_matches(
                     doc, span.start, span.end
                 )
 
-    # Pour les entités
     if matches_entites:
-        doc_text = doc.text
+        for match_id, start, end in matches:
+            match_type = nlp.vocab.strings[match_id]
 
-        for entite in ENTITES:
-            if entite in doc_text:
-                # Chercher dans TAG_DP_MAPPING directement
+            if match_type.startswith("ENTITE_"):
+                entite = match_type[7:]
+
                 entity_mapping = None
                 for k, v in TAG_DP_MAPPING.items():
                     if k and k.lower() == entite.lower():
@@ -414,47 +440,17 @@ def extract_from_matches(
                 if entity_mapping:
                     valeur = entity_mapping.get(field)
                     if valeur and valeur not in debug_matches:
+                        print(
+                            "✅ Entité détectée comme mot entier: "
+                            f"'{entite}' -> '{valeur}'"
+                        )
                         valeurs_uniques.add(valeur)
+                        debug_matches[valeur] = get_highlighted_sentence(
+                            doc, start, end
+                        )
 
-                        # Trouver les tokens correspondant à l'entité
-                        entite_tokens = entite.split()
-                        token_start = None
-                        token_end = None
-
-                        # Chercher la séquence de tokens dans le document
-                        for i in range(len(doc) - len(entite_tokens) + 1):
-                            # Vérifier si la séquence correspond
-                            match = True
-                            for j, entite_token in enumerate(entite_tokens):
-                                if (
-                                    doc[i + j].text.lower()
-                                    != entite_token.lower()
-                                ):
-                                    match = False
-                                    break
-
-                            if match:
-                                token_start = i
-                                token_end = i + len(entite_tokens)
-                                break
-
-                        # Utiliser get_highlighted_sentence
-                        if token_start is not None and token_end is not None:
-                            debug_matches[valeur] = get_highlighted_sentence(
-                                doc, token_start, token_end
-                            )
-                        else:
-                            # Fallback : highlighting simple
-                            start_char = doc_text.find(entite)
-                            if start_char != -1:
-                                before = doc_text[:start_char]
-                                after = doc_text[start_char + len(entite) :]
-                                highlighted = f"{before}<mark>{entite}</mark>"
-                                highlighted += after
-                                debug_matches[valeur] = highlighted
-
-    # Pour les matchs spéciaux (AGE et QF)
-    if field == "tag":  # Ces matchs spéciaux ne concernent que les tags
+    # For special matches (AGE and QF)
+    if field == "tag":
         special_tags = {"AGE": "Age", "QF": "Quotient Familial"}
         for match_id, start, end in matches:
             match_type = nlp.vocab.strings[match_id]
@@ -474,7 +470,6 @@ def extract_tags_and_providers(
 ) -> tuple:
     """Extrait les tags ET les fournisseurs en une seule passe optimisée"""
 
-    # UNE SEULE analyse du texte
     (
         doc,
         matches_phrase,
@@ -483,7 +478,6 @@ def extract_tags_and_providers(
         tag_dp_mapping_lemmas,
     ) = get_matches_and_lemmas(text, nlp)
 
-    # Extraire les tags ET les fournisseurs en parallèle
     tags_uniques, tags_debug = extract_from_matches(
         doc,
         matches_phrase,

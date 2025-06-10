@@ -283,4 +283,9 @@ BLACK_LIST = [
     "apprenti",
     "stagiaire",
     "quartier bourse",
+    "nous indemniser",
+    "invalide et/ou inapplicable",
+    "terminal ",
+    "RSAM",
+    "rsam",
 ]
