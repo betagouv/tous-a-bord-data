@@ -14,24 +14,13 @@ nest_asyncio.apply()
 
 import tiktoken
 from anthropic import Anthropic
-from constants.entites_eligibilite import ENTITES
 from constants.keywords import DEFAULT_KEYWORDS
-from constants.tag_dp_mapping import TAG_DP_MAPPING
 from dotenv import load_dotenv
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
 # Import pour l'évaluation HITL
 from services.evaluation_service import evaluation_service
-
-# Nouveaux imports
-from services.llm_services import (
-    LLM_MODELS,
-    MAX_TOKEN_OUTPUT,
-    call_anthropic,
-    call_ollama,
-    call_scaleway,
-)
 from services.nlp_services import (
     extract_markdown_text,
     extract_tags_and_providers,
@@ -43,7 +32,6 @@ from sqlalchemy import create_engine, text
 from star_ratings import star_ratings
 from utils.crawler_utils import CrawlerManager
 from utils.db_utils import get_postgres_cs
-from utils.streamlit_utils import scroll_to_bottom
 
 # Configuration de la page pour utiliser plus de largeur
 st.set_page_config(page_title="Extraction des tags", layout="wide")
@@ -456,71 +444,97 @@ if selected_aom:
         if not is_previous_step_complete:
             st.warning("⚠️ Veuillez d'abord compléter l'étape de filtrage")
 
-        if st.button(
-            "Extraire les tags et fournisseurs",
-            key="format_tags_and_providers",
-            use_container_width=True,
-            disabled=not is_previous_step_complete,
-        ):
-            with st.spinner("Extraction en cours..."):
-                # UNE SEULE extraction pour tout
-                tags, providers = format_tags_and_providers(
-                    st.session_state.filtered_contents[
-                        "Contenu filtré"
-                    ].strip(),
-                    n_siren_aom,
-                    nom_aom,
-                )
-                st.session_state.tags = tags
-                st.session_state.providers = providers
-                st.rerun()
+        # Créer un conteneur pour le bouton d'extraction
+        extraction_container = st.container()
+        with extraction_container:
+            if st.button(
+                "Extraire les tags et fournisseurs",
+                key="format_tags_and_providers",
+                use_container_width=True,
+                disabled=not is_previous_step_complete,
+            ):
+                with st.spinner("Extraction en cours..."):
+                    # UNE SEULE extraction pour tout
+                    tags, providers = format_tags_and_providers(
+                        st.session_state.filtered_contents[
+                            "Contenu filtré"
+                        ].strip(),
+                        n_siren_aom,
+                        nom_aom,
+                    )
+                    st.session_state.tags = tags
+                    st.session_state.providers = providers
+                    st.rerun()
 
-        # Affichage des tags
-        if "tags" in st.session_state:
-            st.markdown("### 🏷️ Tags détectés")
-            st.session_state.tags = st_tags(
-                label="",
-                text="",
-                value=st.session_state.tags,
-                key="tag_display",
+        # Créer des onglets pour organiser le contenu
+        if "tags" in st.session_state or "providers" in st.session_state:
+            tabs = st.tabs(
+                ["Tags détectés", "Fournisseurs détectés", "Évaluation"]
             )
 
-            # Explications des tags
-            if "tags_explanations" in st.session_state:
-                for tag, match_info in st.session_state.tags_explanations[
-                    "matches"
-                ].items():
-                    st.markdown(f"**{tag}** détecté dans :")
-                    st.markdown(match_info, unsafe_allow_html=True)
-                    st.markdown("---")
-                scroll_to_bottom()
+            # Onglet des tags
+            with tabs[0]:
+                if "tags" in st.session_state:
+                    st.markdown("### 🏷️ Tags détectés")
+                    st.session_state.tags = st_tags(
+                        label="",
+                        text="",
+                        value=st.session_state.tags,
+                        key="tag_display",
+                    )
 
-        # Affichage des fournisseurs
-        if "providers" in st.session_state:
-            st.markdown("### 📊 Fournisseurs détectés")
-            st.session_state.providers = st_tags(
-                label="",
-                text="",
-                value=st.session_state.providers,
-                key="provider_display",
-            )
+                    # Explications des tags
+                    if "tags_explanations" in st.session_state:
+                        # Créer un conteneur avec une hauteur maximale et une barre de défilement
+                        with st.container():
+                            st.markdown(
+                                "#### ℹ️ Explications des tags détectés"
+                            )
+                            for (
+                                tag,
+                                match_info,
+                            ) in st.session_state.tags_explanations[
+                                "matches"
+                            ].items():
+                                st.markdown(f"**{tag}** détecté dans :")
+                                st.markdown(match_info, unsafe_allow_html=True)
+                                st.markdown("---")
 
-            # Explications des fournisseurs
-            if "providers_explanations" in st.session_state:
-                for (
-                    provider,
-                    match_info,
-                ) in st.session_state.providers_explanations[
-                    "matches"
-                ].items():
-                    st.markdown(f"**{provider}** détecté dans :")
-                    st.markdown(match_info, unsafe_allow_html=True)
-                    st.markdown("---")
-                scroll_to_bottom()
+            # Onglet des fournisseurs
+            with tabs[1]:
+                if "providers" in st.session_state:
+                    st.markdown("### 📊 Fournisseurs détectés")
+                    st.session_state.providers = st_tags(
+                        label="",
+                        text="",
+                        value=st.session_state.providers,
+                        key="provider_display",
+                    )
 
-        # Interface d'évaluation combinée
-        if "tags" in st.session_state and "providers" in st.session_state:
-            show_evaluation_interface(
-                "format_tags_and_providers",
-                f"Tags: {st.session_state.tags}, Providers: {st.session_state.providers}",
-            )
+                    # Explications des fournisseurs
+                    if "providers_explanations" in st.session_state:
+                        # Créer un conteneur avec une hauteur maximale et une barre de défilement
+                        with st.container():
+                            st.markdown(
+                                "#### ℹ️ Explications des fournisseurs détectés"
+                            )
+                            for (
+                                provider,
+                                match_info,
+                            ) in st.session_state.providers_explanations[
+                                "matches"
+                            ].items():
+                                st.markdown(f"**{provider}** détecté dans :")
+                                st.markdown(match_info, unsafe_allow_html=True)
+                                st.markdown("---")
+
+            # Onglet d'évaluation
+            with tabs[2]:
+                if (
+                    "tags" in st.session_state
+                    and "providers" in st.session_state
+                ):
+                    show_evaluation_interface(
+                        "format_tags_and_providers",
+                        f"Tags: {st.session_state.tags}, Providers: {st.session_state.providers}",
+                    )
