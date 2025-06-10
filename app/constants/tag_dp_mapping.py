@@ -287,4 +287,12 @@ BLACK_LIST = [
     "espace jeunes",
     "les militaires s’empressent",
     "5 ans de la Stabus",
+    "présentation du handicap",
+    "valable 5 ans",
+    "validité de 5 ans",
+    "aux besoins des jeunes",
+    "Service Public de 8 ans",
+    "période de 3 ans",
+    "APPRENTIS ÉCOLE",
+    "apprentis école",
 ]
