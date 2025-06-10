@@ -13,21 +13,6 @@ from spacy.matcher import Matcher, PhraseMatcher
 # commons
 TOKENS_ELIGIBILITE = [token.lower() for token in TOKENS_ELIGIBILITE]
 
-DEBUG_KEYWORD = "france travail"
-
-
-def debug_targeted(keyword: str, step: str, additional_info: str = ""):
-    """
-    Fonction de debug ciblée simple
-
-    Args:
-        keyword: Mot-clé à rechercher dans additional_info
-        step: Étape du processus
-        additional_info: Information à afficher (sera vérifiée pour le keyword)
-    """
-    if keyword.lower() in additional_info.lower():
-        print(f"🔍 DEBUG {step}: {additional_info}")
-
 
 # Load the fr_core_news_lg model
 @st.cache_resource
@@ -57,9 +42,6 @@ def get_cached_mapping_lemmas():
             doc_key = nlp(k.lower().replace("'", "'"))
             lemmas = [token.lemma_.lower() for token in doc_key]
             lemma_key = " ".join(lemmas)
-
-            debug_targeted(DEBUG_KEYWORD, "MAPPING", f"'{k}' -> '{lemma_key}'")
-
             tag_dp_mapping_lemmas[lemma_key] = v
 
     return tag_dp_mapping_lemmas
@@ -123,9 +105,6 @@ def create_eligibility_matcher(nlp):
 
     for text in TOKENS_ELIGIBILITE:
         doc = nlp(text.lower())
-
-        debug_targeted(DEBUG_KEYWORD, "MATCHER", f"Pattern ajouté: '{text}'")
-
         patterns.append(doc)
 
     phrase_matcher.add("CRITERE_ELIGIBILITE", patterns)
@@ -318,79 +297,20 @@ def filter_transport_fare(paragraphs, nlp):
 
 def get_matches_and_lemmas(text: str, nlp) -> tuple:
     """Extrait les matches et les lemmes à partir du texte."""
-
-    if "france" in text.lower() or "travail" in text.lower():
-        debug_targeted(
-            DEBUG_KEYWORD,
-            "INPUT",
-            "Texte analysé contient 'france' ou 'travail'",
-        )
-
-        # Afficher les extraits pertinents
-        lines = text.split("\n")
-        for i, line in enumerate(lines):
-            if "france" in line.lower() and "travail" in line.lower():
-                debug_targeted(
-                    DEBUG_KEYWORD, "INPUT", f"Ligne {i}: {line.strip()}"
-                )
-
     # Créer le matcher
     phrase_matcher, matcher = create_eligibility_matcher(nlp)
     text = text.replace("'", "'")
     doc = nlp(text)
 
-    # DEBUG: Vérifier comment "France Travail" est lemmatisé dans le texte
-    for i, token in enumerate(doc):
-        if (
-            token.text.lower() == "france"
-            and i + 1 < len(doc)
-            and doc[i + 1].text.lower() == "travail"
-        ):
-            next_token = doc[i + 1]
-            debug_targeted(
-                DEBUG_KEYWORD,
-                "LEMMA_CHECK",
-                f"Dans texte: '{token.text} {next_token.text}' -> "
-                f"lemmes: {token.lemma_.lower()}"
-                f" {next_token.lemma_.lower()}",
-            )
-
     # Chercher les critères
     matches_phrase = phrase_matcher(doc)
-
-    debug_targeted(
-        DEBUG_KEYWORD,
-        "MATCHES",
-        f"Nombre de matches phrase: {len(matches_phrase)}",
-    )
-
-    # DEBUG: Test manuel du PhraseMatcher
-    test_doc = nlp("France Travail")
-    test_matches = phrase_matcher(test_doc)
-    debug_targeted(
-        DEBUG_KEYWORD,
-        "TEST_MATCH",
-        f"Test sur 'France Travail' seul: {len(test_matches)} matches",
-    )
-
-    # CORRECTION: Détection d'entités multi-tokens
     matches_entites = False
     doc_text = doc.text
 
     for entite in ENTITES:
         if entite in doc_text:
             matches_entites = True
-            debug_targeted(
-                DEBUG_KEYWORD,
-                "ENTITE_DETECTION",
-                f"Entité trouvée dans texte: '{entite}'",
-            )
             break
-
-    debug_targeted(
-        DEBUG_KEYWORD, "ENTITE_CHECK", f"matches_entites = {matches_entites}"
-    )
-
     matches = matcher(doc)
 
     # Utiliser le mapping mis en cache
@@ -455,7 +375,7 @@ def extract_from_matches(
             continue
 
         # Vérification du contexte pour les mots sensibles
-        context_window = 2  # Nombre de tokens avant/après à vérifier
+        context_window = 5  # Nombre de tokens avant/après à vérifier
         start_context = max(0, start - context_window)
         end_context = min(len(doc), end + context_window)
         context_span = doc[start_context:end_context].text.lower()
@@ -468,16 +388,6 @@ def extract_from_matches(
         # Lemmatiser le span (optimisé)
         span_lemmas = [token.lemma_.lower() for token in span]
         span_text = " ".join(span_lemmas)
-
-        # Debug ciblé
-        mapping_result = span_text in tag_dp_mapping_lemmas
-
-        debug_targeted(
-            DEBUG_KEYWORD,
-            "SPAN",
-            f"Span '{span.text}' -> lemmatisé '{span_text}' -> "
-            f"trouvé: {mapping_result}",
-        )
 
         # Chercher dans le mapping pré-calculé
         if span_text in tag_dp_mapping_lemmas:
@@ -494,23 +404,12 @@ def extract_from_matches(
 
         for entite in ENTITES:
             if entite in doc_text:
-                debug_targeted(
-                    DEBUG_KEYWORD, "ENTITE", f"Entité trouvée: '{entite}'"
-                )
-
                 # Chercher dans TAG_DP_MAPPING directement
                 entity_mapping = None
                 for k, v in TAG_DP_MAPPING.items():
                     if k and k.lower() == entite.lower():
                         entity_mapping = v
                         break
-
-                is_mapping_found = entity_mapping is not None
-                debug_targeted(
-                    DEBUG_KEYWORD,
-                    "ENTITE",
-                    f"Entité '{entite}' -> mapping trouvé: {is_mapping_found}",
-                )
 
                 if entity_mapping:
                     valeur = entity_mapping.get(field)

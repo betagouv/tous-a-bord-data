@@ -58,9 +58,7 @@ def nlp():
         ("Tarif senior pour les retraités", ["Retraité"], ["CNAV"]),
     ],
 )
-def test_entity_detection_positive(
-    nlp, text, expected_tags, expected_providers
-):
+def test_detection_positive(nlp, text, expected_tags, expected_providers):
     """
     Test la détection positive d'entités : les cas qui DOIVENT être détectés
     Args:
@@ -97,16 +95,16 @@ def test_entity_detection_positive(
         ),
         # Test blacklist bourse du travail
         (
-            "Réunion à la bourse du travail de la ville",
+            "Sélectionnez votre quartier  Bourse",
             ["Statut boursier"],
             ["CNOUS"],
         ),
         # Test blacklist place de la bourse
-        # (
-        #     "Rendez-vous place de la bourse à 14h",
-        #     ["Statut boursier"],
-        #     ["CNOUS"]
-        # ),
+        (
+            "Rendez-vous place de la bourse à 14h",
+            ["Statut boursier"],
+            ["CNOUS"],
+        ),
         # Test blacklist quartier bourse
         (
             "Magasin situé dans le quartier bourse",
@@ -117,9 +115,7 @@ def test_entity_detection_positive(
         ("Horaires d'ouverture : lundi au vendredi de 9h à 17h", [], []),
     ],
 )
-def test_entity_detection_negative(
-    nlp, text, forbidden_tags, forbidden_providers
-):
+def test_detection_negative(nlp, text, forbidden_tags, forbidden_providers):
     """
     Test la détection négative : les cas qui NE DOIVENT PAS être détectés
     Args:
