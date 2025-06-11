@@ -56,4 +56,5 @@ ENTITES = [
     "france travail",
     "Pôle emploi",
     "pôle emploi",
+    "QF1",
 ]

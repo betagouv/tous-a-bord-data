@@ -522,7 +522,10 @@ if selected_aom:
                             )
                             explanation_html += f"{match_info}<hr>"
                         explanation_html += "</div>"
-                        st.markdown(explanation_html, unsafe_allow_html=True)
+                        # Utiliser components.v1.html au lieu de markdown
+                        st.components.v1.html(
+                            explanation_html, height=400, scrolling=True
+                        )
 
             # Onglet des fournisseurs
             with tabs[1]:
@@ -551,7 +554,10 @@ if selected_aom:
                             explanation_html += f"<p><strong>{provider}</strong> détecté dans :</p>"
                             explanation_html += f"{match_info}<hr>"
                         explanation_html += "</div>"
-                        st.markdown(explanation_html, unsafe_allow_html=True)
+                        # Utiliser components.v1.html au lieu de markdown
+                        st.components.v1.html(
+                            explanation_html, height=400, scrolling=True
+                        )
 
             # Onglet d'évaluation
             with tabs[2]:
