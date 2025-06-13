@@ -22,6 +22,7 @@ from langsmith.run_helpers import get_current_run_tree
 # Import pour l'évaluation HITL
 from services.evaluation_service import evaluation_service
 from services.nlp_services import (
+    create_transport_fare_matcher,
     extract_markdown_text,
     extract_tags_and_providers,
     filter_transport_fare,
@@ -119,6 +120,62 @@ def filter_nlp(
     except Exception as e:
         st.error(f"Erreur de filtrage NLP : {str(e)}")
         return {"Contenu filtré": f"Erreur lors du filtrage NLP : {str(e)}"}
+
+
+def check_transport_fare_content(text: str) -> tuple[bool, list]:
+    """Vérifie si le contenu contient des informations sur les tarifs de transport
+
+    Returns:
+        tuple: (has_fares, fare_matches) où has_fares est un booléen indiquant si des tarifs ont été trouvés
+               et fare_matches est une liste des correspondances avec leur contexte
+    """
+    nlp = load_spacy_model()
+    doc = nlp(text)
+
+    # Utiliser le matcher de tarifs de transport
+    matcher = create_transport_fare_matcher(nlp)
+
+    # Vérifier s'il y a des correspondances
+    matches_regex = matcher(doc)
+
+    # Préparer les informations sur les correspondances pour affichage ultérieur
+    fare_matches = []
+
+    for match_id, start, end in matches_regex:
+        match_type = nlp.vocab.strings[match_id]
+        matched_text = doc[start:end].text
+
+        # Trouver la phrase contenant la correspondance
+        sent = None
+        for s in doc.sents:
+            if start >= s.start and end <= s.end:
+                sent = s
+                break
+
+        match_info = {
+            "type": match_type,
+            "text": matched_text,
+            "context": None,
+        }
+
+        if sent:
+            # Préparer le contexte avec le texte mis en évidence
+            before = sent.text[: doc[start].idx - sent.start_char]
+            match = matched_text
+            after = sent.text[
+                doc[end - 1].idx + len(doc[end - 1].text) - sent.start_char :
+            ]
+
+            match_info["context"] = {
+                "before": before,
+                "match": match,
+                "after": after,
+            }
+
+        fare_matches.append(match_info)
+
+    # Si on trouve au moins une correspondance, le contenu contient des informations sur les tarifs
+    return len(matches_regex) > 0, fare_matches
 
 
 @traceable
@@ -476,12 +533,31 @@ if selected_aom:
                 use_container_width=True,
                 disabled=not is_previous_step_complete,
             ):
+                has_fares, fare_matches = check_transport_fare_content(
+                    filtered_content
+                )
+
+                # Stocker les résultats dans la session pour affichage après le spinner
+                st.session_state.fare_check_result = {
+                    "has_fares": has_fares,
+                    "fare_matches": fare_matches,
+                }
+
+                if not has_fares:
+                    st.error(
+                        "⚠️ Aucune information sur les tarifs de transport n'a été détectée dans le contenu filtré."
+                    )
+                    st.stop()
+
                 with st.spinner("Extraction en cours..."):
+                    # Vérifier d'abord si le contenu contient des informations sur les tarifs
+                    filtered_content = st.session_state.filtered_contents[
+                        "Contenu filtré"
+                    ].strip()
+
                     # UNE SEULE extraction pour tout
                     tags, providers = format_tags_and_providers(
-                        st.session_state.filtered_contents[
-                            "Contenu filtré"
-                        ].strip(),
+                        filtered_content,
                         n_siren_aom,
                         nom_aom,
                     )
@@ -489,10 +565,49 @@ if selected_aom:
                     st.session_state.providers = providers
                     st.rerun()
 
+                # Afficher les résultats de la vérification des tarifs (ce code ne sera exécuté qu'après le spinner)
+                if "fare_check_result" in st.session_state:
+                    result = st.session_state.fare_check_result
+
+                    st.subheader(
+                        "Détails des correspondances de tarifs détectées"
+                    )
+
+                    if result["has_fares"]:
+                        st.success(
+                            f"✅ {len(result['fare_matches'])} correspondances de tarifs trouvées"
+                        )
+
+                        for match in result["fare_matches"]:
+                            st.markdown(f"**Type de tarif**: {match['type']}")
+                            st.markdown(f"**Texte détecté**: {match['text']}")
+
+                            if match["context"]:
+                                context = match["context"]
+                                st.markdown(
+                                    f"**Contexte**: {context['before']}<mark style='background-color: #FFFF00'>{context['match']}</mark>{context['after']}",
+                                    unsafe_allow_html=True,
+                                )
+
+                            st.markdown("---")
+                    else:
+                        st.warning(
+                            "⚠️ Aucune correspondance de tarif trouvée dans le texte"
+                        )
+
         # Créer des onglets pour organiser le contenu
-        if "tags" in st.session_state or "providers" in st.session_state:
+        if (
+            "tags" in st.session_state
+            or "providers" in st.session_state
+            or "fare_check_result" in st.session_state
+        ):
             tabs = st.tabs(
-                ["Tags détectés", "Fournisseurs détectés", "Évaluation"]
+                [
+                    "Tags détectés",
+                    "Fournisseurs détectés",
+                    "Tarifs détectés",
+                    "Évaluation",
+                ]
             )
 
             # Onglet des tags
@@ -559,8 +674,37 @@ if selected_aom:
                             explanation_html, height=400, scrolling=True
                         )
 
-            # Onglet d'évaluation
+            # Onglet des tarifs détectés
             with tabs[2]:
+                if "fare_check_result" in st.session_state:
+                    result = st.session_state.fare_check_result
+
+                    st.markdown("### 💰 Tarifs détectés")
+
+                    if result["has_fares"]:
+                        st.success(
+                            f"✅ {len(result['fare_matches'])} correspondances de tarifs trouvées"
+                        )
+
+                        for match in result["fare_matches"]:
+                            st.markdown(f"**Type de tarif**: {match['type']}")
+                            st.markdown(f"**Texte détecté**: {match['text']}")
+
+                            if match["context"]:
+                                context = match["context"]
+                                st.markdown(
+                                    f"**Contexte**: {context['before']}<mark style='background-color: #FFFF00'>{context['match']}</mark>{context['after']}",
+                                    unsafe_allow_html=True,
+                                )
+
+                            st.markdown("---")
+                    else:
+                        st.warning(
+                            "⚠️ Aucune correspondance de tarif trouvée dans le texte"
+                        )
+
+            # Onglet d'évaluation
+            with tabs[3]:
                 if (
                     "tags" in st.session_state
                     and "providers" in st.session_state

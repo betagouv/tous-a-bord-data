@@ -232,7 +232,7 @@ def create_eligibility_matcher(nlp):
 def create_transport_fare_matcher(nlp):
     """Crée un matcher pour les critères de transport"""
     # Retrieve the eligibility matcher
-    phrase_matcher, matcher = create_eligibility_matcher(nlp)
+    matcher = Matcher(nlp.vocab)
 
     # Add fares patterns to the matcher
     matcher.add(
@@ -243,7 +243,7 @@ def create_transport_fare_matcher(nlp):
             # Detect : "10 euros"
             [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "euros"}],
             # Detect : "10 %"
-            [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "%"}],
+            # [{"TEXT": {"REGEX": r"\d+"}}, {"TEXT": "%"}],
             # Detect : "10 €/an"
             [
                 {"TEXT": {"REGEX": r"\d+"}},
@@ -261,7 +261,7 @@ def create_transport_fare_matcher(nlp):
         ],
     )
 
-    return phrase_matcher, matcher
+    return matcher
 
 
 def filter_transport_fare(paragraphs, nlp):
@@ -269,50 +269,70 @@ def filter_transport_fare(paragraphs, nlp):
     filtered_paragraphs = []
     relevant_sentences = []
 
-    phrase_matcher, matcher = create_transport_fare_matcher(nlp)
+    (
+        eligibility_phrase_matcher,
+        eligibility_matcher,
+    ) = create_eligibility_matcher(nlp)
+    fare_matcher = create_transport_fare_matcher(nlp)
 
     for paragraph in paragraphs:
         doc = nlp(paragraph)
 
-        matches_phrase = phrase_matcher(doc)
-        matches_regex = matcher(doc)
+        eligibility_matches_phrase = eligibility_phrase_matcher(doc)
+        eligibility_matches_regex = eligibility_matcher(doc)
+        fare_matches_regex = fare_matcher(doc)
 
         matches_entites = False
-        for match_id, start, _ in matches_regex:
+        for match_id, start, _ in eligibility_matches_regex:
             match_type = nlp.vocab.strings[match_id]
             if match_type.startswith("ENTITE_"):
                 matches_entites = True
                 break
 
         # Paragraphs with matches
-        if matches_phrase or matches_regex or matches_entites:
+        if (
+            eligibility_matches_phrase
+            or eligibility_matches_regex
+            or matches_entites
+            or fare_matches_regex
+        ):
             filtered_paragraphs.append(paragraph)
             # Add sentences with matches
             for sent in doc.sents:
                 sent_start = sent.start
                 sent_end = sent.end
 
-                has_phrase_match = any(
+                has_eligibility_phrase_match = any(
                     sent_start <= start < sent_end
-                    for _, start, _ in matches_phrase
+                    for _, start, _ in eligibility_matches_regex
                 )
 
-                has_regex_match = any(
+                has_eligibility_regex_match = any(
                     sent_start <= start < sent_end
-                    for _, start, _ in matches_regex
+                    for _, start, _ in eligibility_matches_regex
                 )
 
-                has_entity = False
-                for match_id, start, end in matches_regex:
+                has_eligibility_entity = False
+                for match_id, start, end in eligibility_matches_regex:
                     match_type = nlp.vocab.strings[match_id]
                     if (
                         match_type.startswith("ENTITE_")
                         and sent_start <= start < sent_end
                     ):
-                        has_entity = True
+                        has_eligibility_entity = True
                         break
 
-                if has_phrase_match or has_regex_match or has_entity:
+                has_fare_regex_match = any(
+                    sent_start <= start < sent_end
+                    for _, start, _ in fare_matches_regex
+                )
+
+                if (
+                    has_eligibility_phrase_match
+                    or has_eligibility_regex_match
+                    or has_eligibility_entity
+                    or has_fare_regex_match
+                ):
                     relevant_sentences.append(sent.text)
 
     return filtered_paragraphs, relevant_sentences
