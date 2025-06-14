@@ -1,6 +1,4 @@
 import asyncio
-import os
-import re
 from datetime import datetime
 from typing import Dict, List
 
@@ -13,7 +11,6 @@ from streamlit_tags import st_tags
 nest_asyncio.apply()
 
 import tiktoken
-from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
 from langsmith import traceable
@@ -21,6 +18,7 @@ from langsmith.run_helpers import get_current_run_tree
 
 # Import pour l'évaluation HITL
 from services.evaluation_service import evaluation_service
+from services.llm_services import LLM_MODELS
 from services.nlp_services import (
     create_transport_fare_matcher,
     extract_markdown_text,
@@ -29,6 +27,9 @@ from services.nlp_services import (
     load_spacy_model,
     normalize_text,
 )
+
+# Import pour la classification TSST
+from services.tsst_spacy_llm_task import TSSTClassifier
 from sqlalchemy import create_engine, text
 from star_ratings import star_ratings
 from utils.crawler_utils import CrawlerManager
@@ -308,6 +309,9 @@ selected_aom = st.selectbox(
         st.session_state.pop("raw_scraped_content", None),
         st.session_state.pop("scraped_content", None),
         st.session_state.pop("filtered_contents", None),
+        st.session_state.pop(
+            "tsst_classification_result", None
+        ),  # Réinitialiser la classification TSST
         st.session_state.pop("tags", None),
         st.session_state.pop("providers", None),
         st.session_state.pop(
@@ -317,6 +321,9 @@ selected_aom = st.selectbox(
             "providers_explanations", None
         ),  # Ajout de cette ligne
         st.session_state.pop("run_ids", {}),  # Réinitialiser les run_ids
+        # Réinitialiser les variables de détection de changement de modèle
+        st.session_state.pop("previous_model_name", None),
+        st.session_state.pop("model_changed", None),
     ),
 )
 
@@ -334,7 +341,7 @@ if selected_aom:
     if "selected_keywords" not in st.session_state:
         st.session_state.selected_keywords = DEFAULT_KEYWORDS.copy()
 
-    with st.expander("🕸️ Étape 1 : Scraper le contenu"):
+    with st.expander("🕸️ Task 1 : Scraper le contenu"):
         new_keyword = st.text_input(
             "Ajouter un nouveau mot-clé :",
             placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
@@ -398,7 +405,7 @@ if selected_aom:
             st.rerun()
 
     # Step 2: Affichage du contenu scrapé
-    with st.expander("👀 Étape 2 : Afficher le contenu scrapé"):
+    with st.expander("👀 Task 2 : Afficher le contenu scrapé"):
         if (
             "raw_scraped_content" in st.session_state
             and st.session_state.raw_scraped_content
@@ -461,7 +468,7 @@ if selected_aom:
             st.session_state.scraped_content = scraped_content
 
     # Step 3: Filtrage du contenu
-    with st.expander("🎯 Étape 3 : Filtrage du contenu"):
+    with st.expander("🎯 Task 3 : Filtrage du contenu"):
         # Vérifier si l'étape précédente est complétée
         is_previous_step_complete = (
             "scraped_content" in st.session_state
@@ -476,6 +483,14 @@ if selected_aom:
             filtered_content = st.session_state.filtered_contents[
                 "Contenu filtré"
             ]
+            has_fares, fare_matches = check_transport_fare_content(
+                filtered_content
+            )
+            # Stocker les résultats dans la session pour affichage après le spinner
+            st.session_state.fare_check_result = {
+                "has_fares": has_fares,
+                "fare_matches": fare_matches,
+            }
             nb_tokens = count_tokens(filtered_content)
 
             st.text_area(
@@ -484,7 +499,13 @@ if selected_aom:
                 height=500,
                 disabled=True,
             )
-            # Ajouter l'interface d'évaluation
+            if not has_fares:
+                st.error(
+                    "⚠️ Aucune information sur les tarifs de transport n'a été détectée dans le contenu filtré."
+                )
+                show_evaluation_interface("filter", filtered_content)
+                st.stop()
+
             show_evaluation_interface("filter", filtered_content)
 
         if st.button(
@@ -510,10 +531,8 @@ if selected_aom:
             else:
                 st.error("Aucun contenu pertinent trouvé dans les sources")
 
-    # Step 4: Extraction des tags ET fournisseurs (combinée)
-    with st.expander(
-        "🏷️ Étape 4 : Extraction des tags et fournisseurs", expanded=True
-    ):
+    with st.expander("🤖 Task 4 : Classification TSST avec LLM"):
+        # Vérifier si l'étape précédente est complétée
         is_previous_step_complete = (
             "filtered_contents" in st.session_state
             and st.session_state.filtered_contents.get(
@@ -522,6 +541,141 @@ if selected_aom:
         )
 
         if not is_previous_step_complete:
+            st.warning("⚠️ Veuillez d'abord compléter l'étape de filtrage")
+
+        # Fonction pour détecter le changement de modèle
+        def on_model_change():
+            if (
+                "previous_model_name" in st.session_state
+                and st.session_state.selected_model_name
+                != st.session_state.previous_model_name
+            ):
+                # Réinitialiser le résultat de classification si le modèle change
+                st.session_state.pop("tsst_classification_result", None)
+                st.session_state.previous_model_name = (
+                    st.session_state.selected_model_name
+                )
+
+        # Initialiser les variables de session si elles n'existent pas
+        if "previous_model_name" not in st.session_state:
+            st.session_state.previous_model_name = list(LLM_MODELS.keys())[0]
+
+        # Sélecteur de modèle LLM avec détection de changement
+        selected_model_name = st.selectbox(
+            "Modèle LLM à utiliser",
+            options=list(LLM_MODELS.keys()),
+            index=0,
+            key="selected_model_name",
+            on_change=on_model_change,
+        )
+
+        # Afficher le résultat de la classification TSST s'il existe
+        if "tsst_classification_result" in st.session_state:
+            result = st.session_state.tsst_classification_result
+
+            st.subheader("Résultat de la classification TSST")
+
+            if result["is_tsst"]:
+                st.success(
+                    "✅ Le contenu concerne la tarification sociale et solidaire des transports (TSST)"
+                )
+            else:
+                st.error(
+                    "❌ Le contenu ne concerne PAS la tarification sociale et solidaire des transports"
+                )
+                show_evaluation_interface("tsst_classification", str(result))
+                st.stop()
+
+            # Afficher la justification si disponible
+            if "justification" in result and result["justification"]:
+                st.markdown("**Justification:**")
+                st.info(result["justification"])
+
+            # Créer un conteneur pour les détails techniques
+            st.markdown("**Détails techniques:**")
+            col1, col2 = st.columns(2)
+
+            st.markdown("**Réponse du LLM:**")
+            st.code(result["response"], language="text")
+
+            # Ajouter l'interface d'évaluation
+            show_evaluation_interface("tsst_classification", str(result))
+
+        @traceable
+        def classify_tsst(content: str, model_name: str) -> Dict:
+            """Classifie le contenu pour déterminer s'il concerne la TSST"""
+            run = get_current_run_tree()
+            st.session_state.run_ids["tsst_classification"] = run.id
+
+            # Initialiser le classifieur TSST
+            classifier = TSSTClassifier(model_name=model_name)
+
+            # Classifier le contenu entier
+            is_tsst, details = classifier.classify_paragraph(content)
+
+            # Préparer le résultat
+            result = {
+                "is_tsst": is_tsst,
+                "scores": details["scores"],
+                "prompt": details["prompt"],
+                "response": details["response"],
+                "justification": details.get("justification", ""),
+            }
+
+            return result
+
+        if st.button(
+            "Lancer la classification TSST",
+            key="tsst_classification",
+            disabled=not is_previous_step_complete,
+        ):
+            # Vérification du contenu filtré
+            filtered_content = st.session_state.filtered_contents.get(
+                "Contenu filtré", ""
+            ).strip()
+            if not filtered_content:
+                st.error("Le contenu filtré est vide")
+                st.stop()
+            with st.spinner("Classification TSST en cours..."):
+                try:
+                    # Appeler la fonction traçable
+                    result = classify_tsst(
+                        filtered_content, selected_model_name
+                    )
+                    # Stocker le résultat dans la session
+                    st.session_state.tsst_classification_result = result
+                    st.success("Classification TSST terminée")
+                    st.rerun()
+                except Exception as e:
+                    st.error(
+                        f"Erreur lors de la classification TSST: {str(e)}"
+                    )
+
+    with st.expander(
+        "🏷️ Task 5 : Extraction des tags et fournisseurs", expanded=True
+    ):
+        # Vérifier si la classification TSST est activée et disponible
+        tsst_enabled = "tsst_classification_result" in st.session_state
+
+        # Vérifier si l'étape précédente est complétée
+        is_previous_step_complete = (
+            "filtered_contents" in st.session_state
+            and st.session_state.filtered_contents.get(
+                "Contenu filtré", ""
+            ).strip()
+        )
+
+        # Si la classification TSST est activée mais le résultat est négatif, bloquer l'extraction
+        if (
+            tsst_enabled
+            and not st.session_state["tsst_classification_result"]["is_tsst"]
+        ):
+            st.error(
+                "❌ Le contenu ne concerne pas la tarification sociale et solidaire des transports. L'extraction des tags est désactivée."
+            )
+            is_previous_step_complete = False
+            st.stop()
+        elif not is_previous_step_complete:
             st.warning("⚠️ Veuillez d'abord compléter l'étape de filtrage")
 
         # Créer un conteneur pour le bouton d'extraction
@@ -533,22 +687,6 @@ if selected_aom:
                 use_container_width=True,
                 disabled=not is_previous_step_complete,
             ):
-                has_fares, fare_matches = check_transport_fare_content(
-                    filtered_content
-                )
-
-                # Stocker les résultats dans la session pour affichage après le spinner
-                st.session_state.fare_check_result = {
-                    "has_fares": has_fares,
-                    "fare_matches": fare_matches,
-                }
-
-                if not has_fares:
-                    st.error(
-                        "⚠️ Aucune information sur les tarifs de transport n'a été détectée dans le contenu filtré."
-                    )
-                    st.stop()
-
                 with st.spinner("Extraction en cours..."):
                     # Vérifier d'abord si le contenu contient des informations sur les tarifs
                     filtered_content = st.session_state.filtered_contents[

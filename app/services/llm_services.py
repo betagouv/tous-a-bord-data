@@ -10,17 +10,13 @@ from openai import OpenAI
 MAX_TOKEN_OUTPUT = 4000
 
 LLM_MODELS = {
-    "Llama 3 (Ollama)": {
-        "name": "llama3:8b",
+    "Llama 3.1 8B (Scaleway)": {
+        "name": "llama-3.1-8b-instruct",
         "max_tokens": 128000,
     },
     "Llama 3.3 70B (Scaleway)": {
         "name": "llama-3.3-70b-instruct",
         "max_tokens": 131000,
-    },
-    "Llama 3.1 8B (Scaleway)": {
-        "name": "llama-3.1-8b-instruct",
-        "max_tokens": 128000,
     },
     "Mistral Nemo (Scaleway)": {
         "name": "mistral-nemo-instruct-2407",
