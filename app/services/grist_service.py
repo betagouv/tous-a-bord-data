@@ -2,7 +2,7 @@ import logging
 from typing import List, Optional
 
 import requests
-from models.grist_models import aom, commune
+from models.grist_models import Aom, Commune, TransportOffer
 
 
 class GristDataService:
@@ -37,9 +37,9 @@ class GristDataService:
             cls._instance = cls(api_key, doc_id)
         return cls._instance
 
-    async def get_aoms(self) -> List[aom]:
+    async def get_aoms(self) -> List[Aom]:
         """
-        Retrieve aoms from Grist
+        Retrieve Aoms from Grist
         """
         try:
             base = f"{self.base_url}/api/docs/{self.doc_id}"
@@ -47,14 +47,13 @@ class GristDataService:
             response = requests.get(url, headers=self.headers)
             response.raise_for_status()
             data = response.json()
-            # validate data structure
             if isinstance(data, list):
                 return [
-                    aom.model_validate(record["fields"]) for record in data
+                    Aom.model_validate(record["fields"]) for record in data
                 ]
             elif isinstance(data, dict) and "records" in data:
                 return [
-                    aom.model_validate(record["fields"])
+                    Aom.model_validate(record["fields"])
                     for record in data["records"]
                 ]
             else:
@@ -63,7 +62,7 @@ class GristDataService:
             logging.error(f"Erreur lors de la récupération des aoms: {e}")
             raise
 
-    async def get_communes(self) -> List[commune]:
+    async def get_communes(self) -> List[Commune]:
         """
         Retrieve communes from Grist
         """
@@ -73,17 +72,51 @@ class GristDataService:
             response = requests.get(url, headers=self.headers)
             response.raise_for_status()
             data = response.json()
-            # validate data structure
+
             if isinstance(data, list):
-                return [commune.model_validate(rec["fields"]) for rec in data]
+                return [
+                    Commune.model_validate(record["fields"]) for record in data
+                ]
             elif isinstance(data, dict) and "records" in data:
                 return [
-                    commune.model_validate(rec["fields"])
-                    for rec in data["records"]
+                    Commune.model_validate(record["fields"])
+                    for record in data["records"]
                 ]
             else:
-                raise ValueError(f"Format inattendu: {type(data)}")
+                raise ValueError(f"Format de données inattendu: {type(data)}")
 
         except Exception as e:
-            logging.error(f"Erreur lors de la récupération des communes: {e}")
+            logging.error(
+                f"Erreur lors de la récupération des offres de transport: {e}"
+            )
+            raise
+
+    async def get_transport_offers(self) -> List[TransportOffer]:
+        """
+        Retrieve transport offers from Grist
+        """
+        try:
+            base = f"{self.base_url}/api/docs/{self.doc_id}"
+            url = f"{base}/tables/Comarquage_offretransport/records"
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            data = response.json()
+
+            if isinstance(data, list):
+                return [
+                    TransportOffer.model_validate(record["fields"])
+                    for record in data
+                ]
+            elif isinstance(data, dict) and "records" in data:
+                return [
+                    TransportOffer.model_validate(record["fields"])
+                    for record in data["records"]
+                ]
+            else:
+                raise ValueError(f"Format de données inattendu: {type(data)}")
+
+        except Exception as e:
+            logging.error(
+                f"Erreur lors de la récupération des offres de transport: {e}"
+            )
             raise
