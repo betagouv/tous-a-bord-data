@@ -4,14 +4,14 @@ import os
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
+from services.grist_service import GristDataService
 from utils.dataframe_utils import filter_dataframe
-
-from app.services.grist_service import GristDataService
 
 # Configuration de la page Streamlit (DOIT ÊTRE EN PREMIER)
 st.set_page_config(
-    page_title=("Base de données des critères d'éligibilité par AOM"),
+    page_title="Base de données des critères d'éligibilité par AOM",
     page_icon="🚌",
+    layout="wide",
 )
 
 load_dotenv()
@@ -20,7 +20,8 @@ load_dotenv()
 async def fetch_aoms_from_grist():
     """Charge les données des AOM depuis Grist."""
     try:
-        grist_service = GristDataService(
+        # Utilisation du singleton pattern
+        grist_service = GristDataService.get_instance(
             api_key=os.getenv("GRIST_API_KEY"),
             doc_id=os.getenv("GRIST_DOC_INPUTDATA_ID"),
         )

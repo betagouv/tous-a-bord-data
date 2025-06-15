@@ -1,21 +1,41 @@
 import logging
-from typing import List
+from typing import List, Optional
 
 import requests
 from models.grist_models import aom, commune
 
 
 class GristDataService:
-    def __init__(self, api_key: str, doc_id: str):
-        if not api_key:
-            raise ValueError("La clé API Grist est requise")
+    _instance: Optional["GristDataService"] = None
+    _initialized: bool = False
 
-        self.base_url = "https://grist.numerique.gouv.fr/o/droits-data"
-        self.doc_id = doc_id
-        self.headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(GristDataService, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, api_key: str, doc_id: str):
+        # Only initialize once
+        if not GristDataService._initialized:
+            if not api_key:
+                raise ValueError("La clé API Grist est requise")
+
+            self.base_url = "https://grist.numerique.gouv.fr/o/droits-data"
+            self.doc_id = doc_id
+            self.headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            GristDataService._initialized = True
+
+    @classmethod
+    def get_instance(cls, api_key: str, doc_id: str) -> "GristDataService":
+        """
+        Get the singleton instance of GristDataService
+        """
+        if cls._instance is None:
+            cls._instance = cls(api_key, doc_id)
+        return cls._instance
 
     async def get_aoms(self) -> List[aom]:
         """
@@ -41,7 +61,6 @@ class GristDataService:
                 raise ValueError(f"Format de données inattendu: {type(data)}")
         except Exception as e:
             logging.error(f"Erreur lors de la récupération des aoms: {e}")
-            logging.error(f"Response text: {response.text}")
             raise
 
     async def get_communes(self) -> List[commune]:
@@ -67,5 +86,4 @@ class GristDataService:
 
         except Exception as e:
             logging.error(f"Erreur lors de la récupération des communes: {e}")
-            logging.error(f"Response text: {response.text}")
             raise
