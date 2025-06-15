@@ -47,8 +47,8 @@ def process_transport_gouv_data(dataset_aoms):
             if len(sheet_names) < 2:
                 st.error("File must contain two sheets (AOM and communes)")
                 return None, None
-            # Specify dtype for n_insee column as string
-            dtype_specs = {"n_insee": str}
+            # Specify dtype for n_insee and code_insee_region columns as string
+            dtype_specs = {"n_insee": str, "code_insee_region": str}
             dataset_aom = pd.read_excel(
                 tmp_path,
                 sheet_name=sheet_names[0],
@@ -67,11 +67,44 @@ def process_transport_gouv_data(dataset_aoms):
             dataset_com.columns = [
                 format_column(col) for col in dataset_com.columns
             ]
-            # Ensure n_insee is string type after column formatting
-            if "n_insee" in dataset_aom.columns:
-                dataset_aom["n_insee"] = dataset_aom["n_insee"].astype(str)
-            if "n_insee" in dataset_com.columns:
-                dataset_com["n_insee"] = dataset_com["n_insee"].astype(str)
+            # Ensure specific columns are string type after column formatting
+            string_columns = [
+                "n_insee",
+                "code_insee_region",
+                "code_departement",
+                "code_region",
+            ]
+
+            # Function to ensure columns are string type if they exist
+            def ensure_string_columns(df, columns):
+                for col in columns:
+                    if col in df.columns:
+                        df[col] = df[col].astype(str)
+                return df
+
+            # Apply to both dataframes
+            dataset_aom = ensure_string_columns(dataset_aom, string_columns)
+            dataset_com = ensure_string_columns(dataset_com, string_columns)
+
+            # Additional protection: convert any object columns with numeric-looking strings to explicit string type
+            # This prevents PyArrow from trying to convert them to numeric types
+            def convert_numeric_strings_to_explicit_strings(df):
+                for col in df.select_dtypes(include=["object"]).columns:
+                    # Check if column contains any string values that look like numbers
+                    if (
+                        df[col]
+                        .apply(lambda x: isinstance(x, str) and x.isdigit())
+                        .any()
+                    ):
+                        df[col] = df[col].astype(str)
+                return df
+
+            dataset_aom = convert_numeric_strings_to_explicit_strings(
+                dataset_aom
+            )
+            dataset_com = convert_numeric_strings_to_explicit_strings(
+                dataset_com
+            )
             st.success(
                 "File loaded successfully! Sheets: "
                 f"{', '.join(sheet_names)}"
@@ -171,7 +204,14 @@ dataset_aoms = get_aom_dataset()
 # show the url of most recent aoms dataset on transport.gouv
 # st.write(dataset_aoms)
 
-df_aom, df_communes = process_transport_gouv_data(dataset_aoms)
+# Check if there was an error fetching the dataset
+if dataset_aoms and "error" in dataset_aoms:
+    st.error(
+        f"Erreur lors de la récupération des données: {dataset_aoms['error']}"
+    )
+    df_aom, df_communes = None, None
+else:
+    df_aom, df_communes = process_transport_gouv_data(dataset_aoms)
 if df_aom is not None and df_communes is not None:
     st.write("Aperçu des données :")
     st.dataframe(df_aom.head(5))
