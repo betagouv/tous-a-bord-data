@@ -9,6 +9,47 @@ from openai import OpenAI
 
 MAX_TOKEN_OUTPUT = 4000
 
+LLM_MODELS = {
+    "Llama 3.1 8B (Scaleway)": {
+        "name": "llama-3.1-8b-instruct",
+        "max_tokens": 128000,
+    },
+    "Llama 3.3 70B (Scaleway)": {
+        "name": "llama-3.3-70b-instruct",
+        "max_tokens": 131000,
+    },
+    "Mistral Nemo (Scaleway)": {
+        "name": "mistral-nemo-instruct-2407",
+        "max_tokens": 128000,
+    },
+    "Qwen 2.5 32B (Scaleway)": {
+        "name": "qwen2.5-coder-32b-instruct",
+        "max_tokens": 32000,
+    },
+    # not really supported yet
+    # "DeepSeek r1 (Scaleway)": {
+    #     "name": "deepseek-r1",
+    #     "max_tokens": 20000,
+    # },
+    "DeepSeek r1 distill (Scaleway)": {
+        "name": "deepseek-r1-distill-llama-70b",
+        "max_tokens": 32000,
+    },
+    "Claude 3 Haiku (Anthropic)": {
+        "name": "claude-3-5-haiku-latest",
+        "max_tokens": 100000,
+    },
+    # too expansive
+    "Claude 3 Sonnet (Anthropic)": {
+        "name": "claude-3-5-sonnet-latest",
+        "max_tokens": 200000,
+    },
+    "Claude 4 Sonnet (Anthropic)": {
+        "name": "claude-sonnet-4-20250514",
+        "max_tokens": 200000,
+    },
+}
+
 
 def get_model_metadata(model_name: str, platform: str) -> dict:
     """Crée les métadonnées pour le tracking LangSmith"""
