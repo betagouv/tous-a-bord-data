@@ -1,68 +1,44 @@
-from typing import List, Optional
+from typing import Optional
 
-from pydantic import BaseModel, field_validator
-
-
-class AOM(BaseModel):
-    N_SIREN_AOM: int
-    Nom_de_l_AOM: str
-    Commune_principale_De_l_AOM: str
-    N_SIREN_Groupement: Optional[int]
-    Departement: str
-    Region: str
-    Forme_juridique_De_l_AOM: str
-    Bassin_de_mobilite: str
-    Nombre_de_membre_De_l_AOM: int
-    Nombre_de_commune_De_l_AOM: int
-    Population_De_l_AOM: int
-    Surface_km2_: float
-    Lien_Banatic: Optional[str]
-    Id_reseau: Optional[int]
-    Nom_de_president_De_l_AOM: Optional[str]
-    Adresse_du_siege_De_l_AOM: Optional[str]
-    Adresse_mail: Optional[str]
-    Offres_sur_le_territoire_de_l_AOM: Optional[str]
-    Offres_sur_le_territoire_de_l_AOM2: Optional[str]
-    Description_des_tarifications: Optional[List[str]] = None
-    Tarif_etudiant: bool
-    Page_tarification: Optional[str]
-    QF_CAF_: bool
-    GART: bool
+from pydantic import BaseModel
 
 
-class Commune(BaseModel):
-    Nom_membre: str
-    Siren_membre: int
-    N_INSEE: str
-    Population_totale_2019_Banatic_: int
-    Surface_km2_: float
-    Lien_Page_Wikipedia: Optional[str]
-    Nom_de_l_AOM: str
-    N_SIREN_AOM: Optional[int] = None
-    Forme_juridique_De_l_AOM: str
-    Plan: Optional[str]
-    Comite_des_Partenaires: Optional[str]
-    Bassin_de_mobilite_1: Optional[str]
-    Bassin_de_mobilite_2: Optional[str]
-    Region_siege: str
-    Departement_siege: str
-    Nom_du_groupement: Optional[str]
-    N_SIREN_Groupement: Optional[int] = None
-    Id_reseau: Optional[int] = None
-    Nature_juridique_Du_groupement: Optional[str]
-    Lien_Banatic: Optional[str]
-    Nombre_De_membres: Optional[int] = None
-    Population_totale_2019_Banatic_2: Optional[int] = None
+class aom(BaseModel):
+    n_siren_aom: int
+    nom_aom: str
+    commune_principale_aom: str
+    n_siren_groupement: Optional[int]
+    departement: str
+    region: str
+    forme_juridique_aom: str
+    bassin_mobilite: str
+    nombre_membre_aom: int
+    nombre_commune_aom: int
+    population_aom: Optional[int]
+    surface_km_2: str
+    id_reseau: Optional[int]
+    nom_president_aom: Optional[str]
+    adresse_siege_aom: Optional[str]
+    adresse_mail: Optional[str]
 
-    @field_validator(
-        "N_SIREN_AOM",
-        "N_SIREN_Groupement",
-        "Id_reseau",
-        "Nombre_De_membres",
-        "Population_totale_2019_Banatic_2",
-        mode="before",
-    )
-    def handle_dash(cls, v):
-        if v == "-":
-            return None
-        return v
+
+class commune(BaseModel):
+    nom_membre: str
+    siren_membre: int
+    n_insee: str
+    population_totale_2021_insee: int
+    surface_km_2: float
+    nom_aom: str
+    n_siren_aom: Optional[int] = None
+    forme_juridique_aom: str
+    plan: Optional[str]
+    comite_partenaire: Optional[str]
+    bassin_mobilite_1: Optional[str]
+    region_siege: str
+    departement_siege: str
+    nom_groupement: Optional[str]
+    n_siren_groupement: Optional[int] = None
+    id_reseau: Optional[int] = None
+    nature_juridique_groupement: Optional[str]
+    nombre_membre: Optional[int] = None
+    population_totale_2019_banatic: Optional[int] = None

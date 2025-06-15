@@ -5,6 +5,7 @@ from constants.urls import URL_DATASET_AOM, URL_TRANSPORT_GOUV_DATASETS
 def get_aom_dataset():
     url = URL_DATASET_AOM
     response = requests.get(url)
+    print(f"Fetching AOM dataset from {response.url}")
     data = response.json()
     # Filtrer les ressources au format ODS
     ods_resources = [

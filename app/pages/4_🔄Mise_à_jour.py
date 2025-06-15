@@ -376,22 +376,20 @@ with st.expander("Voir les données actuelles"):
         st.subheader("Table AOMs")
         st.metric("Nombre d'enregistrements", aoms_count)
         if aoms_count > 0:
-            aoms_sample = pd.read_sql("SELECT * FROM aoms LIMIT 5", engine)
+            aoms_sample = pd.read_sql("SELECT * FROM aoms", engine)
             st.dataframe(aoms_sample)
         # Table Communes
         st.subheader("Table Communes")
         st.metric("Nombre d'enregistrements", communes_count)
         if communes_count > 0:
-            communes_sample = pd.read_sql(
-                "SELECT * FROM communes LIMIT 5", engine
-            )
+            communes_sample = pd.read_sql("SELECT * FROM communes", engine)
             st.dataframe(communes_sample)
         # Table Passim
         st.subheader("Table Passim")
         st.metric("Nombre d'enregistrements", passim_count)
         if passim_count > 0:
             passim_sample = pd.read_sql(
-                "SELECT * FROM transport_offers LIMIT 5", engine
+                "SELECT * FROM transport_offers", engine
             )
             st.dataframe(passim_sample)
     except Exception as e:

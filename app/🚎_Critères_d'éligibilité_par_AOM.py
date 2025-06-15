@@ -1,17 +1,12 @@
+import asyncio
 import os
 
 import pandas as pd
-import psycopg2
 import streamlit as st
-
-# from constants.cerema_columns import AOM_MAPPING, COMMUNES_MAPPING
-from pgvector.psycopg2 import register_vector
-from sqlalchemy import create_engine
-
-# from services.transport_gouv_client import filter_datasets_with_fares
+from dotenv import load_dotenv
 from utils.dataframe_utils import filter_dataframe
-from utils.db_utils import check_tables_exist, get_postgres_cs
-from utils.grist_utils import get_aoms_data
+
+from app.services.grist_service import GristDataService
 
 # Configuration de la page Streamlit (DOIT ÊTRE EN PREMIER)
 st.set_page_config(
@@ -19,43 +14,26 @@ st.set_page_config(
     page_icon="🚌",
 )
 
+load_dotenv()
 
-def get_database_connection():
-    conn = psycopg2.connect(
-        host=os.environ["POSTGRES_HOST"],
-        database=os.environ["POSTGRES_DB"],
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-    )
-    register_vector(conn)
-    return conn
+
+async def fetch_aoms_from_grist():
+    """Charge les données des AOM depuis Grist."""
+    try:
+        grist_service = GristDataService(
+            api_key=os.getenv("GRIST_API_KEY"),
+            doc_id=os.getenv("GRIST_DOC_INPUTDATA_ID"),
+        )
+        aoms = await grist_service.get_aoms()
+        return pd.DataFrame([aom.model_dump() for aom in aoms])
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des AOM depuis Grist: {str(e)}")
+        return pd.DataFrame()
 
 
 try:
-    conn = get_database_connection()
-    st.success("Connexion à la base de données réussie!")
-    conn.close()
-except Exception as e:
-    st.error(f"Erreur de connexion à la base de données: {str(e)}")
-
-engine = create_engine(get_postgres_cs())
-check_tables_exist(engine)
-try:
-    aoms_data = get_aoms_data()
-    # Try to load data from the database first
-    # aoms_data = load_aoms_data_from_db()
-    # if aoms_data is None or aoms_data.empty:
-    #     # If no data is found in the database, use Grist as fallback
-    #     st.warning(
-    #         "Aucune donnée trouvée dans la base de données. Veuillez "
-    #         "mettre à jour la base de données via l'onglet "
-    #         "'Mise à jour de la base de données'."
-    #     )
-    #     aoms_data = get_aoms_data()
-    # else:
-    #     st.success("Données chargées depuis la base de données PostgreSQL.")
-    # # Store the data in the session
-    # st.session_state.aoms_data = aoms_data
+    if "aoms_data" not in st.session_state:
+        st.session_state.aoms_data = asyncio.run(fetch_aoms_from_grist())
 except Exception as e:
     st.error(f"Erreur lors du chargement des données: {str(e)}")
     st.session_state.aoms_data = pd.DataFrame()
@@ -80,22 +58,5 @@ st.write(f"📊{first} {second}")
 # Display the filtered table
 st.dataframe(
     filtered_df,
-    column_config={
-        "N_SIREN_AOM": "SIREN AOM",
-        "Nom_de_l_AOM": "Nom de l'AOM",
-        "Region": "Région",
-        "Type_tarification": "Type de tarification",
-        "Description_tarification": "Description",
-        "Conditions_eligibilite": "Conditions d'éligibilité",
-        "Justificatifs": "Justificatifs requis",
-        "Prix": st.column_config.NumberColumn(
-            "Prix", help="Prix en euros", format="%.2f €"
-        ),
-    },
     hide_index=True,
 )
-
-
-# show the datasets with fares
-# datasets_with_fares = filter_datasets_with_fares()
-# st.write(datasets_with_fares)
