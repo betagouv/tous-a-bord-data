@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional, Union
 
 import requests
 from models.grist_models import Aom, Commune, TransportOffer
@@ -89,6 +89,44 @@ class GristDataService:
             logging.error(
                 f"Erreur lors de la récupération des offres de transport: {e}"
             )
+            raise
+
+    async def update_aoms(
+        self, aoms: List[Aom]
+    ) -> Dict[str, Union[int, List[Dict]]]:
+        """
+        Update Aoms in Grist using n_siren_aom as identifier
+
+        Args:
+            aoms: List of Aom objects to update
+
+        Returns:
+            Dict containing the response from Grist API
+        """
+        try:
+            base = f"{self.base_url}/api/docs/{self.doc_id}"
+            url = f"{base}/tables/Aoms/records"
+
+            # Format the records for the API request
+            records = []
+            for aom in aoms:
+                aom_dict = aom.model_dump()
+                # Use n_siren_aom as the identifier in the require object
+                record = {
+                    "require": {"n_siren_aom": aom_dict.pop("n_siren_aom")},
+                    "fields": aom_dict,
+                }
+                records.append(record)
+
+            payload = {"records": records}
+
+            # Make the PUT request to update the records
+            response = requests.put(url, headers=self.headers, json=payload)
+            response.raise_for_status()
+
+            return response.json()
+        except Exception as e:
+            logging.error(f"Erreur lors de la mise à jour des aoms: {e}")
             raise
 
     async def get_transport_offers(self) -> List[TransportOffer]:

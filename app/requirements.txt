@@ -30,4 +30,4 @@ streamlit-tags
 plotly
 openpyxl
 xlsxwriter
-spacy-llm
+pyexcel_ods3
