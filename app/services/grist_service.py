@@ -85,7 +85,11 @@ class GristDataService:
                 aom_dict = aom.model_dump()
                 # Use n_siren_aom as the identifier in the require object
                 record = {
-                    "require": {"n_siren_aom": aom_dict.pop("n_siren_aom")},
+                    "require": {
+                        "n_siren_groupement": aom_dict.pop(
+                            "n_siren_groupement"
+                        )
+                    },
                     "fields": aom_dict,
                 }
                 records.append(record)
@@ -94,7 +98,6 @@ class GristDataService:
 
             # Make the PUT request to update the records
             response = requests.put(url, headers=self.headers, json=payload)
-            st.write(response)
             response.raise_for_status()
 
             return response.json()

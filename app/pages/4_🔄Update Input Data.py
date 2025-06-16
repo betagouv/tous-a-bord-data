@@ -203,6 +203,8 @@ def validate_data(
         f"Validation terminée: {len(validated_data)} objets valides, {errors} erreur{'s' if errors > 0 else ''}"
     )
 
+    progress_bar.empty()
+
     return validated_data
 
 
@@ -244,7 +246,7 @@ async def update_aoms_in_grist(
         total_updated = 0
         for i, batch in enumerate(batches):
             status_placeholder.info(
-                f"Traitement du lot {i+1}/{total_batches} ({len(batch)} enregistrements)"
+                f"Traitement du lot {i+1}/{total_batches} ({len(batch)} aoms par batch)"
             )
 
             try:
@@ -269,6 +271,7 @@ async def update_aoms_in_grist(
         status_placeholder.success(
             f"Total des enregistrements mis à jour: {total_updated}"
         )
+        progress_bar.empty()
 
         # Set update flag
         st.session_state.update_performed = True

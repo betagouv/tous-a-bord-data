@@ -89,6 +89,19 @@ class Aom(BaseModel):
     nombre_membre_aom: int
     nombre_commune_aom: int
     population_aom: Optional[int] = None
+
+    @validator("population_aom", pre=True)
+    def parse_population(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        try:
+            if isinstance(value, str):
+                return int(value)
+        except (ValueError, TypeError):
+            return None
+
     surface_km_2: Optional[float] = None
 
     @validator("surface_km_2", pre=True)
