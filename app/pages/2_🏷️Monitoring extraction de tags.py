@@ -569,6 +569,10 @@ if selected_aom:
             on_change=on_model_change,
         )
 
+        # Afficher une notification si le modèle a changé
+        if st.session_state.model_changed:
+            st.success(f"✅ Modèle changé pour: {selected_model_name}")
+
         # Afficher le résultat de la classification TSST s'il existe
         if "tsst_classification_result" in st.session_state:
             result = st.session_state.tsst_classification_result

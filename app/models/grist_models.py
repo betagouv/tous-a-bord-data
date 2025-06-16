@@ -4,6 +4,79 @@ from typing import Any, ClassVar, Dict, Optional, Set
 from pydantic import BaseModel, Field, root_validator, validator
 
 
+class DownloadedAom(BaseModel):
+    n_sirenaom: Optional[int] = None
+    nom_aom: Optional[str] = None
+    commune_principale_aom: Optional[str] = None
+    n_siren_groupement: Optional[int] = None
+    departement: Optional[str] = None
+    region: Optional[str] = None
+    code_insee_region: Optional[int] = None
+
+    @validator("code_insee_region", pre=True)
+    def parse_code_insee_region(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        try:
+            # Gère les cas comme "12345" (code INSEE)
+            return int(value)
+        except (ValueError, TypeError):
+            return None
+
+    forme_juridique_aom: Optional[str] = None
+    bassin_mobilite: Optional[str] = None
+    nombre_membre_aom: Optional[int] = None
+    nombre_commune_aom: Optional[int] = None
+    population_aom_banatic: Optional[int] = None
+    surface_km_2: Optional[float] = None
+    lienbanatic: Optional[str] = None
+    id_reseau: Optional[int] = None
+    nom_president_aom: Optional[str] = None
+    adresse_siege_aom: Optional[str] = None
+    adresse_mail: Optional[str] = None
+    offre_territoire_aom: Optional[str] = None
+    vm_taux_max: Optional[float] = None
+
+    @validator("surface_km_2", pre=True)
+    def parse_surface(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, float):
+            return value
+        try:
+            # Gère les cas comme "123,45" (virgule française)
+            if isinstance(value, str) and "," in value:
+                value = value.replace(",", ".")
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    def to_aom(self) -> "Aom":
+        """
+        Convert to Aom model
+        """
+        return Aom(
+            n_siren_aom=self.n_sirenaom,
+            nom_aom=self.nom_aom,
+            commune_principale_aom=self.commune_principale_aom,
+            n_siren_groupement=self.n_siren_groupement,
+            departement=self.departement,
+            region=self.region,
+            forme_juridique_aom=self.forme_juridique_aom,
+            bassin_mobilite=self.bassin_mobilite,
+            nombre_membre_aom=self.nombre_membre_aom,
+            nombre_commune_aom=self.nombre_commune_aom,
+            population_aom=self.population_aom_banatic,
+            surface_km_2=self.surface_km_2,
+            id_reseau=self.id_reseau,
+            nom_president_aom=self.nom_president_aom,
+            adresse_siege_aom=self.adresse_siege_aom,
+            adresse_mail=self.adresse_mail,
+        )
+
+
 class Aom(BaseModel):
     n_siren_aom: int
     nom_aom: str
@@ -36,86 +109,6 @@ class Aom(BaseModel):
     nom_president_aom: Optional[str] = None
     adresse_siege_aom: Optional[str] = None
     adresse_mail: Optional[str] = None
-
-
-class Commune(BaseModel):
-    nom_membre: Optional[str] = None
-    siren_membre: Optional[int] = None
-    n_insee: Optional[int] = None
-    population_totale_2021_insee: Optional[int] = None
-    surface_km_2: Optional[float] = None
-
-    @validator("surface_km_2", pre=True)
-    def parse_surface(cls, value):
-        if value is None:
-            return None
-        if isinstance(value, float):
-            return value
-        try:
-            # Gère les cas comme "123,45" (virgule française)
-            if isinstance(value, str) and "," in value:
-                value = value.replace(",", ".")
-            return float(value)
-        except (ValueError, TypeError):
-            return None
-
-    nom_aom: Optional[str] = None
-
-    @validator("nom_aom", pre=True)
-    def parse_nom_aom(cls, value):
-        if value is None:
-            return None
-        if isinstance(value, str):
-            return value.strip()
-        try:
-            if isinstance(value, str) and "-" in value:
-                return None
-        except (ValueError, TypeError):
-            return None
-
-    n_siren_aom: Optional[int] = None
-
-    @validator("n_siren_aom", pre=True)
-    def parse_n_siren_aom(cls, value):
-        if value is None:
-            return None
-        if isinstance(value, int):
-            return value
-        try:
-            if isinstance(value, str) and "-" in value:
-                return None
-            else:
-                return int(value)
-        except (ValueError, TypeError):
-            return None
-
-    forme_juridique_aom: Optional[str] = None
-    plan: Optional[str] = None
-    comite_partenaire: Optional[str] = None
-    bassin_mobilite_1: Optional[str] = None
-    region_siege: Optional[str] = None
-    departement_siege: Optional[str] = None
-    nom_groupement: Optional[str] = None
-    n_siren_groupement: Optional[int] = None
-
-    @validator("n_siren_groupement", pre=True)
-    def parse_n_siren_groupement(cls, value):
-        if value is None:
-            return None
-        if isinstance(value, int):
-            return value
-        try:
-            if isinstance(value, str) and "-" in value:
-                return None
-            else:
-                return int(value)
-        except (ValueError, TypeError):
-            return None
-
-    id_reseau: Optional[int] = None
-    nature_juridique_groupement: Optional[str] = None
-    nombre_membre: Optional[int] = None
-    population_totale_2019_banatic: Optional[int] = None
 
 
 class TransportOffer(BaseModel):

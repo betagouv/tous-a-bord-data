@@ -2,7 +2,7 @@ import logging
 from typing import Dict, List, Optional, Union
 
 import requests
-from models.grist_models import Aom, Commune, TransportOffer
+from models.grist_models import Aom, TransportOffer
 
 
 class GristDataService:
@@ -60,35 +60,6 @@ class GristDataService:
                 raise ValueError(f"Format de données inattendu: {type(data)}")
         except Exception as e:
             logging.error(f"Erreur lors de la récupération des aoms: {e}")
-            raise
-
-    async def get_communes(self) -> List[Commune]:
-        """
-        Retrieve communes from Grist
-        """
-        try:
-            base = f"{self.base_url}/api/docs/{self.doc_id}"
-            url = f"{base}/tables/Communes/records"
-            response = requests.get(url, headers=self.headers)
-            response.raise_for_status()
-            data = response.json()
-
-            if isinstance(data, list):
-                return [
-                    Commune.model_validate(record["fields"]) for record in data
-                ]
-            elif isinstance(data, dict) and "records" in data:
-                return [
-                    Commune.model_validate(record["fields"])
-                    for record in data["records"]
-                ]
-            else:
-                raise ValueError(f"Format de données inattendu: {type(data)}")
-
-        except Exception as e:
-            logging.error(
-                f"Erreur lors de la récupération des offres de transport: {e}"
-            )
             raise
 
     async def update_aoms(

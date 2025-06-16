@@ -1,7 +1,8 @@
 import asyncio
+import logging
 import os
 import tempfile
-from typing import Dict, List, Optional, Tuple, Type, TypeVar
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import pyexcel_ods3
@@ -9,8 +10,7 @@ import requests
 import streamlit as st
 from constants.urls import URL_PASSIM
 from dotenv import load_dotenv
-from models.grist_models import Aom, Commune
-from pydantic import BaseModel
+from models.grist_models import Aom, DownloadedAom
 from services.grist_service import GristDataService
 from services.transport_gouv_client import get_aom_dataset
 from utils.parser_utils import format_column
@@ -30,7 +30,9 @@ if "update_performed" not in st.session_state:
     st.session_state.update_performed = False
 
 
-def download_file(url: str, progress_placeholder) -> Optional[str]:
+def download_file(
+    url: str, status_placehorlder, progressbar_placeholder
+) -> Optional[str]:
     """
     Download a file with progress tracking
 
@@ -41,7 +43,7 @@ def download_file(url: str, progress_placeholder) -> Optional[str]:
     Returns:
         Path to downloaded file or None if error
     """
-    progress_placeholder.info("Téléchargement du fichier en cours...")
+    status_placehorlder.info("Téléchargement du fichier en cours...")
 
     # Use a session for better control
     session = requests.Session()
@@ -53,7 +55,7 @@ def download_file(url: str, progress_placeholder) -> Optional[str]:
     # Now make the actual GET request with streaming
     response = session.get(url, stream=True)
     if response.status_code != 200:
-        progress_placeholder.error(
+        status_placehorlder.error(
             f"Erreur de téléchargement: {response.status_code}"
         )
         return None
@@ -62,7 +64,7 @@ def download_file(url: str, progress_placeholder) -> Optional[str]:
     with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as tmp_f:
         # Download with progress tracking
         downloaded = 0
-        progress_bar = progress_placeholder.progress(0)
+        progress_bar = progressbar_placeholder.progress(0)
 
         for chunk in response.iter_content(chunk_size=4096):
             if chunk:  # filter out keep-alive chunks
@@ -70,22 +72,17 @@ def download_file(url: str, progress_placeholder) -> Optional[str]:
                 downloaded += len(chunk)
 
                 # Update progress bar
-                if total_size > 0:
+                if total_size > 0.0:
                     progress = min(downloaded / total_size, 1.0)
                     progress_bar.progress(progress)
 
-                    # Also show download speed and percentage
-                    progress_text = f"Téléchargement: {downloaded/1024/1024:.1f} MB / {total_size/1024/1024:.1f} MB ({progress*100:.1f}%)"
-                    progress_placeholder.info(progress_text)
-
         # Download complete
         progress_bar.progress(1.0)
-        progress_placeholder.success("Téléchargement terminé!")
         return tmp_f.name
 
 
 def process_ods_file(
-    file_path: str, progress_placeholder
+    file_path: str, status_placeholder, progressbar_placeholder
 ) -> Tuple[List[Dict], List[Dict]]:
     """
     Process ODS file directly using pyexcel_ods3
@@ -95,24 +92,21 @@ def process_ods_file(
         progress_placeholder: Streamlit placeholder for progress updates
 
     Returns:
-        Tuple of (AOM data list, communes data list)
+        Tuple of (AOM data list)
     """
     # Create a processing progress tracker
-    processing_status = progress_placeholder.empty()
-    processing_status.info("Traitement direct du fichier ODS...")
-    processing_progress = progress_placeholder.progress(0)
+    status_placeholder.info("Traitement du fichier ODS...")
+    processing_progress = progressbar_placeholder.progress(0)
 
     try:
         # Step 1: Load the ODS file directly with pyexcel_ods3 (much faster than pandas)
-        processing_status.info("Chargement du fichier ODS...")
         processing_progress.progress(0.1)
 
         # Load the ODS file directly
         data = pyexcel_ods3.get_data(file_path)
-
         # Check if we have at least 2 sheets
         if len(data) < 2:
-            processing_status.error(
+            st.error(
                 "Le fichier doit contenir deux feuilles (AOM et communes)"
             )
             return [], []
@@ -121,7 +115,7 @@ def process_ods_file(
         sheet_names = list(data.keys())
 
         # Step 2: Process AOM data directly
-        processing_status.info("Traitement des données AOM...")
+        status_placeholder.info("Traitement des données AOM...")
         processing_progress.progress(0.3)
 
         # Get AOM data
@@ -144,52 +138,20 @@ def process_ods_file(
             # Store the raw data
             aom_data.append(row_dict)
 
-        # Step 3: Process Communes data directly
-        processing_status.info("Traitement des données Communes...")
-        processing_progress.progress(0.6)
-
-        # Get Communes data
-        communes_sheet = data[sheet_names[1]]
-
-        # Extract headers and format them
-        communes_headers = [
-            format_column(header) for header in communes_sheet[0]
-        ]
-
-        # Process Communes records directly
-        communes_data = []
-        for row in communes_sheet[1:]:  # Skip header row
-            # Create a dictionary from headers and row values
-            row_dict = {}
-            for j, header in enumerate(communes_headers):
-                if j < len(row):
-                    row_dict[header] = row[j]
-                else:
-                    row_dict[header] = None
-
-            # Store the raw data
-            communes_data.append(row_dict)
-
         # Complete
         processing_progress.progress(1.0)
-        processing_status.success("Traitement terminé avec succès!")
 
-        return aom_data, communes_data
+        return aom_data
     except Exception as e:
-        processing_status.error(
-            f"Erreur lors du traitement du fichier: {str(e)}"
-        )
+        st.error(f"Erreur lors du traitement du fichier: {str(e)}")
         return [], []
 
 
-T = TypeVar("T", bound=BaseModel)
-
-
 def validate_data(
-    raw_data: List[Dict], progress_placeholder, model_class: Type[T]
-) -> List[T]:
+    raw_data: List[Dict], status_placeholder, progress_placeholder
+) -> List[Aom]:
     """
-    Validate raw AOM data with Pydantic - simplified version
+    Validate raw AOM data with Pydantic using intermediate model
 
     Args:
         raw_data: List of dictionaries containing AOM data
@@ -198,27 +160,45 @@ def validate_data(
     Returns:
         List of validated Aom objects
     """
-    progress_placeholder.info(
+    status_placeholder.info(
         f"Validation de {len(raw_data)} enregistrements avec Pydantic..."
     )
     validated_data = []
     errors = 0
 
-    # Simple progress bar
     progress_bar = progress_placeholder.progress(0)
 
-    # Process in batches for better performance
     batch_size = 100
     for i in range(0, len(raw_data), batch_size):
         batch = raw_data[i : i + batch_size]
 
         # Process each item in batch
-        for row_dict in batch:
+        for idx, row_dict in enumerate(batch):
             try:
-                # Direct validation with Pydantic
-                data = model_class.model_validate(row_dict)
-                validated_data.append(data)
-            except Exception:
+                # First validate with the intermediate model
+                downloaded_aom = DownloadedAom.model_validate(row_dict)
+
+                try:
+                    # Then convert to the final Aom model
+                    aom = downloaded_aom.to_aom()
+                    validated_data.append(aom)
+                except Exception as aom_error:
+                    # Capture errors lors de la conversion vers Aom
+                    record_num = i + idx + 1
+                    error_message = str(aom_error)
+                    logging.error(
+                        f"Erreur de conversion vers Aom pour l'enregistrement {record_num}: {error_message}"
+                    )
+                    errors += 1
+
+            except Exception as e:
+                # Capture errors lors de la validation DownloadedAom
+                record_num = i + idx + 1
+                error_message = str(e)
+                status_placeholder.error(
+                    f"Erreur de validation DownloadedAom pour l'enregistrement {record_num}: {error_message}"
+                )
+
                 errors += 1
 
         # Update progress after each batch
@@ -227,80 +207,12 @@ def validate_data(
 
     # Complete progress
     progress_bar.progress(1.0)
-    progress_placeholder.success(
-        f"Validation terminée: {len(validated_data)} objets valides, {errors} erreurs"
+
+    status_placeholder.success(
+        f"Validation terminée: {len(validated_data)} objets valides, {errors} erreur{'s' if errors > 0 else ''}"
     )
 
     return validated_data
-
-
-async def update_aoms_in_grist(aoms: List[Aom], progress_placeholder) -> bool:
-    """
-    Update AOM data in Grist
-
-    Args:
-        aoms: List of Aom objects
-        progress_placeholder: Streamlit placeholder for progress updates
-
-    Returns:
-        True if update was successful, False otherwise
-    """
-    try:
-        # Get GristDataService instance
-        grist_service = GristDataService.get_instance(
-            api_key=os.getenv("GRIST_API_KEY"),
-            doc_id=os.getenv("GRIST_DOC_INPUTDATA_ID"),
-        )
-
-        # Create progress tracking
-        status_text = progress_placeholder.empty()
-        status_text.info("Mise à jour des données dans Grist...")
-        progress_bar = progress_placeholder.progress(0)
-
-        # Define batch size
-        batch_size = 50  # Optimal batch size for performance
-
-        # Create batches
-        batches = [
-            aoms[i : i + batch_size] for i in range(0, len(aoms), batch_size)
-        ]
-        total_batches = len(batches)
-
-        # Process each batch
-        total_updated = 0
-        for i, batch in enumerate(batches):
-            status_text.info(
-                f"Traitement du lot {i+1}/{total_batches} ({len(batch)} enregistrements)"
-            )
-
-            # Update AOM data for this batch
-            result = await grist_service.update_aoms(batch)
-
-            # Check if update was successful
-            if result and isinstance(result, dict):
-                total_updated += len(batch)
-
-                # Update progress
-                progress = min((i + 1) / total_batches, 1.0)
-                progress_bar.progress(progress)
-            else:
-                progress_placeholder.error(
-                    f"Échec du traitement du lot {i+1}/{total_batches}"
-                )
-                return False
-
-        # Complete progress
-        progress_bar.progress(1.0)
-        status_text.success(
-            f"Total des enregistrements mis à jour: {total_updated}"
-        )
-
-        return True
-    except Exception as e:
-        progress_placeholder.error(
-            f"Erreur lors de la mise à jour des données AOM: {str(e)}"
-        )
-        return False
 
 
 async def fetch_current_data():
@@ -308,7 +220,7 @@ async def fetch_current_data():
     Fetch current data from Grist
 
     Returns:
-        Tuple of (aoms, communes, transport_offers)
+        couple of (aoms, transport_offers)
     """
     try:
         # Get GristDataService instance
@@ -319,10 +231,9 @@ async def fetch_current_data():
 
         # Fetch data
         aoms = await grist_service.get_aoms()
-        communes = await grist_service.get_communes()
         transport_offers = await grist_service.get_transport_offers()
 
-        return aoms, communes, transport_offers
+        return aoms, transport_offers
     except Exception as e:
         st.error(
             f"Erreur lors de la récupération des données depuis Grist: {str(e)}"
@@ -330,7 +241,9 @@ async def fetch_current_data():
         return [], [], []
 
 
-def download_and_process_aom_data(dataset_info, progress_placeholder):
+def download_and_process_aom_data(
+    dataset_info, status_placeholder, progressbar_placeholder
+):
     """
     Download and process AOM data
 
@@ -344,43 +257,55 @@ def download_and_process_aom_data(dataset_info, progress_placeholder):
     # Get URL
     url = dataset_info.get("url")
     if not url:
-        progress_placeholder.error(
+        status_placeholder.error(
             "URL non trouvée dans les informations du dataset"
         )
         return False
 
     # Download file
-    file_path = download_file(url, progress_placeholder)
+    file_path = download_file(url, status_placeholder, progressbar_placeholder)
     if not file_path:
         return False
 
     try:
         # Process file
-        aom_data, communes_data = process_ods_file(
-            file_path, progress_placeholder
+        aom_data = process_ods_file(
+            file_path, status_placeholder, progressbar_placeholder
         )
 
         # Check if data was processed successfully
-        if not aom_data or not communes_data:
-            progress_placeholder.error("Erreur lors du traitement des données")
+        if not aom_data:
+            status_placeholder.error("Erreur lors du traitement des données")
             return False
 
+        # Filtrer les lignes vides avant validation
+        filtered_aom_data = []
+        empty_rows = 0
+        for row_dict in aom_data:
+            if any(value is not None for value in row_dict.values()):
+                filtered_aom_data.append(row_dict)
+            else:
+                empty_rows += 1
+
+        if empty_rows > 0:
+            status_placeholder.info(
+                f"{empty_rows} lignes vides ont été ignorées."
+            )
+
         # Validate AOM data with Pydantic immediately
-        progress_placeholder.info("Validation des données avec Pydantic...")
-        validated_aoms = validate_data(aom_data, progress_placeholder, Aom)
-        validated_communes = validate_data(
-            communes_data, progress_placeholder, Commune
+        status_placeholder.info(
+            f"Validation de {len(filtered_aom_data)} enregistrements avec Pydantic..."
+        )
+        validated_aoms = validate_data(
+            filtered_aom_data, status_placeholder, progressbar_placeholder
         )
 
         # Store validated objects in session state
         st.session_state.aoms_data = validated_aoms
-        st.session_state.communes_data = validated_communes
 
         return True
     except Exception as e:
-        progress_placeholder.error(
-            f"Erreur lors du traitement des données: {str(e)}"
-        )
+        st.error(f"Erreur lors du traitement des données: {str(e)}")
         return False
     finally:
         # Clean up temporary file
@@ -393,7 +318,7 @@ st.header("🔄 Mise à jour des données d'entrée")
 st.markdown(
     """
     - Cette page permet de mettre à jour les données des AOMs (Autorités Organisatrices de la Mobilité),
-    les données de Communes et des offres de transport.
+    et des offres de transport.
     - Les données sont récupérées depuis le site **transport.gouv.fr** et l'annuaire **Passim** du Cerema.
     """
 )
@@ -403,15 +328,13 @@ with st.expander(
     "Données actuellement disponibles dans Grist", expanded=False
 ):
     # Fetch current data
-    aoms, communes, transport_offers = asyncio.run(fetch_current_data())
+    aoms, transport_offers = asyncio.run(fetch_current_data())
 
     # Display counts
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         st.metric("AOMs", len(aoms))
     with col2:
-        st.metric("Communes", len(communes))
-    with col3:
         st.metric("Offres de transport", len(transport_offers))
 
     # Display data tables
@@ -419,13 +342,6 @@ with st.expander(
         st.subheader("Table AOMs")
         aoms_df = pd.DataFrame([aom.model_dump() for aom in aoms])
         st.dataframe(aoms_df)
-
-    if communes:
-        st.subheader("Table Communes")
-        communes_df = pd.DataFrame(
-            [commune.model_dump() for commune in communes]
-        )
-        st.dataframe(communes_df)
 
     if transport_offers:
         st.subheader("Table Passim")
@@ -435,10 +351,11 @@ with st.expander(
         st.dataframe(offers_df)
 
 # AOM data section
-st.subheader("Mise à jour des données AOMs et Communes")
+st.subheader("Mise à jour des données AOMs")
 st.markdown(
-    """Les données des AOMs (Autorités Organisatrices de la Mobilité), et des
-communes proviennent du **CEREMA** et sont formattées par **transport.gouv.fr**.
+    """
+    Les données des AOMs (Autorités Organisatrices de la Mobilité)
+    proviennent du **CEREMA** et sont formattées par **transport.gouv.fr**.
 """
 )
 
@@ -456,23 +373,24 @@ with download_container:
     elif dataset_aoms:
         # Show dataset info
         st.info(
-            f"Dataset disponible: {dataset_aoms.get('title', 'Données AOMs / Communes')}"
+            f"Dataset disponible: {dataset_aoms.get('title', 'Données AOMs')}"
         )
 
         # Create a button to download the data
         if st.button(
-            "📥 Télécharger et préparer les données AOMs / Communes",
+            "📥 Télécharger et préparer les données AOMs",
             key="btn_download",
         ):
             # Create a placeholder for progress updates
-            progress_placeholder = st.empty()
+            status_placeholder = st.empty()
+            progressbar_placeholder = st.empty()
 
             # Download and process data
             if download_and_process_aom_data(
-                dataset_aoms, progress_placeholder
+                dataset_aoms, status_placeholder, progressbar_placeholder
             ):
                 # Success message
-                st.success("✅ Données téléchargées avec succès!")
+                logging.info("✅ Données téléchargées avec succès!")
     else:
         st.error("Impossible de récupérer les informations sur le dataset")
 
