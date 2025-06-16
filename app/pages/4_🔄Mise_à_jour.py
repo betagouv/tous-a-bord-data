@@ -28,6 +28,8 @@ load_dotenv()
 # Initialize session state
 if "update_performed" not in st.session_state:
     st.session_state.update_performed = False
+if "aoms_data" not in st.session_state:
+    st.session_state.aoms_data = []
 
 
 def download_file(
@@ -177,22 +179,11 @@ def validate_data(
             try:
                 # First validate with the intermediate model
                 downloaded_aom = DownloadedAom.model_validate(row_dict)
-
-                try:
-                    # Then convert to the final Aom model
-                    aom = downloaded_aom.to_aom()
-                    validated_data.append(aom)
-                except Exception as aom_error:
-                    # Capture errors lors de la conversion vers Aom
-                    record_num = i + idx + 1
-                    error_message = str(aom_error)
-                    logging.error(
-                        f"Erreur de conversion vers Aom pour l'enregistrement {record_num}: {error_message}"
-                    )
-                    errors += 1
+                aom = downloaded_aom.to_aom()
+                validated_data.append(aom)
 
             except Exception as e:
-                # Capture errors lors de la validation DownloadedAom
+                # Capture errors lors de la validation DownloadedAom, or when convert to Aom model
                 record_num = i + idx + 1
                 error_message = str(e)
                 status_placeholder.error(
@@ -213,6 +204,81 @@ def validate_data(
     )
 
     return validated_data
+
+
+async def update_aoms_in_grist(
+    aoms: List[Aom], status_placeholder, progressbar_placeholder
+) -> bool:
+    """
+    Update AOM data in Grist
+
+    Args:
+        aoms: List of Aom objects
+        status_placeholder: Streamlit placeholder for status updates
+        progressbar_placeholder: Streamlit placeholder for progress bar
+
+    Returns:
+        True if update was successful, False otherwise
+    """
+    try:
+        # Get GristDataService instance
+        grist_service = GristDataService.get_instance(
+            api_key=os.getenv("GRIST_API_KEY"),
+            doc_id=os.getenv("GRIST_DOC_INPUTDATA_ID"),
+        )
+
+        # Create progress tracking
+        status_placeholder.info("Mise à jour des données dans Grist...")
+        progress_bar = progressbar_placeholder.progress(0)
+
+        # Define batch size
+        batch_size = 50  # Optimal batch size for performance
+
+        # Create batches
+        batches = [
+            aoms[i : i + batch_size] for i in range(0, len(aoms), batch_size)
+        ]
+        total_batches = len(batches)
+
+        # Process each batch
+        total_updated = 0
+        for i, batch in enumerate(batches):
+            status_placeholder.info(
+                f"Traitement du lot {i+1}/{total_batches} ({len(batch)} enregistrements)"
+            )
+
+            try:
+                # Update AOM data for this batch
+                await grist_service.update_aoms(batch)
+
+                # Always consider the update successful since we're getting a 200 response
+                # The actual response is displayed with st.info in the UI
+                total_updated += len(batch)
+
+                # Update progress
+                progress = min((i + 1) / total_batches, 1.0)
+                progress_bar.progress(progress)
+            except Exception as e:
+                error_msg = f"Exception lors de la mise à jour du lot {i+1}/{total_batches}: {str(e)}"
+                logging.exception(error_msg)
+                status_placeholder.error(error_msg)
+                return False
+
+        # Complete progress
+        progress_bar.progress(1.0)
+        status_placeholder.success(
+            f"Total des enregistrements mis à jour: {total_updated}"
+        )
+
+        # Set update flag
+        st.session_state.update_performed = True
+
+        return True
+    except Exception as e:
+        status_placeholder.error(
+            f"Erreur lors de la mise à jour des données AOM: {str(e)}"
+        )
+        return False
 
 
 async def fetch_current_data():
@@ -330,21 +396,14 @@ with st.expander(
     # Fetch current data
     aoms, transport_offers = asyncio.run(fetch_current_data())
 
-    # Display counts
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("AOMs", len(aoms))
-    with col2:
-        st.metric("Offres de transport", len(transport_offers))
-
     # Display data tables
     if aoms:
-        st.subheader("Table AOMs")
+        st.metric("AOMs", len(aoms))
         aoms_df = pd.DataFrame([aom.model_dump() for aom in aoms])
         st.dataframe(aoms_df)
 
     if transport_offers:
-        st.subheader("Table Passim")
+        st.metric("Offres de transport", len(transport_offers))
         offers_df = pd.DataFrame(
             [offer.model_dump() for offer in transport_offers]
         )
@@ -390,9 +449,51 @@ with download_container:
                 dataset_aoms, status_placeholder, progressbar_placeholder
             ):
                 # Success message
-                logging.info("✅ Données téléchargées avec succès!")
+                st.success("✅ Données téléchargées avec succès!")
+
+                # Show the number of validated AOMs
+                if st.session_state.aoms_data:
+                    st.info(
+                        f"{len(st.session_state.aoms_data)} AOMs validées et prêtes à être mises à jour dans Grist"
+                    )
     else:
         st.error("Impossible de récupérer les informations sur le dataset")
+
+# Add a button to update the data in Grist if we have validated AOMs
+if (
+    "aoms_data" in st.session_state
+    and len(st.session_state.aoms_data) > 0
+    and not st.session_state.update_performed
+):
+    st.subheader("Mise à jour des données dans Grist")
+    st.markdown(
+        """
+    Les données ont été validées et sont prêtes à être mises à jour dans Grist.
+    Cliquez sur le bouton ci-dessous pour lancer la mise à jour.
+    """
+    )
+
+    if st.button(
+        "📤 Mettre à jour les données dans Grist", key="btn_update_grist"
+    ):
+        status_placeholder = st.empty()
+        progressbar_placeholder = st.empty()
+
+        # Update the data in Grist
+        if asyncio.run(
+            update_aoms_in_grist(
+                st.session_state.aoms_data,
+                status_placeholder,
+                progressbar_placeholder,
+            )
+        ):
+            st.success("✅ Données mises à jour avec succès dans Grist!")
+        else:
+            st.error("❌ Erreur lors de la mise à jour des données dans Grist")
+
+# Reset update flag
+if st.session_state.update_performed:
+    st.session_state.update_performed = False
 
 
 # Passim section
@@ -427,7 +528,3 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-# Reset update flag
-if st.session_state.update_performed:
-    st.session_state.update_performed = False

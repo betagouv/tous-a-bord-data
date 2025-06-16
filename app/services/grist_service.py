@@ -2,6 +2,7 @@ import logging
 from typing import Dict, List, Optional, Union
 
 import requests
+import streamlit as st
 from models.grist_models import Aom, TransportOffer
 
 
@@ -93,10 +94,12 @@ class GristDataService:
 
             # Make the PUT request to update the records
             response = requests.put(url, headers=self.headers, json=payload)
+            st.write(response)
             response.raise_for_status()
 
             return response.json()
         except Exception as e:
+            st.error(e)
             logging.error(f"Erreur lors de la mise à jour des aoms: {e}")
             raise
 
