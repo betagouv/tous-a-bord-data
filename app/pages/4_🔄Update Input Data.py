@@ -538,7 +538,7 @@ async def upload_aoms_with_offers(
 
             try:
                 # Add AOM transport offers for this batch
-                await grist_service.add_aom_transport_offers(
+                await grist_service.update_aom_transport_offers(
                     batch, doc_id=intermediary_doc_id
                 )
 
@@ -939,7 +939,8 @@ taux_surface = (surface_avec_offres / total_surface) * 100
 
 
 with st.expander(
-    "💾 Task 6 : upload AOMs avec offres de transport", expanded=False
+    "💾 Task 6 : upload AOMs avec offres de transport et leurs urls renseignées",
+    expanded=False,
 ):
     # Row 1: Total AOMs and AOMs with offers
     col1, col2 = st.columns(2)

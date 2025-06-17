@@ -345,7 +345,7 @@ class AomTransportOffer(BaseModel):
     nom_aom: str
     commune_principale_aom: str
     nombre_commune_aom: int
-    population_aom: int
+    population_aom: Optional[int] = None
     surface_km_2: Optional[float] = None
     id_reseau_aom: Optional[int] = None
 

@@ -1,8 +1,10 @@
 import asyncio
+import os
 from datetime import datetime
 from typing import Dict, List
 
 import nest_asyncio
+import pandas as pd
 import streamlit as st
 from streamlit_tags import st_tags
 
@@ -15,9 +17,10 @@ from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
+from services.evaluation_service import evaluation_service
 
 # Import pour l'évaluation HITL
-from services.evaluation_service import evaluation_service
+from services.grist_service import GristDataService
 from services.llm_services import LLM_MODELS
 from services.nlp_services import (
     create_transport_fare_matcher,
@@ -33,7 +36,6 @@ from services.tsst_spacy_llm_task import TSSTClassifier
 from sqlalchemy import create_engine, text
 from star_ratings import star_ratings
 from utils.crawler_utils import CrawlerManager
-from utils.db_utils import get_postgres_cs
 
 # Configuration de la page pour utiliser plus de largeur
 st.set_page_config(page_title="Extraction des tags", layout="wide")
@@ -59,32 +61,6 @@ load_dotenv()
 
 
 st.title("Extraction des tags")
-
-# Connect to the database
-engine = create_engine(get_postgres_cs())
-
-
-def get_aom_content_by_source(siren: str, source_url: str) -> str:
-    """Récupère le contenu d'une source spécifique pour un AOM"""
-    with engine.connect() as conn:
-        pages = conn.execute(
-            text(
-                """
-                SELECT url_page, contenu_scrape
-                FROM tarification_raw
-                WHERE n_siren_aom = :siren
-                AND url_source = :url
-                ORDER BY id
-            """
-            ),
-            {"siren": siren, "url": source_url},
-        ).fetchall()
-        all_pages = []
-        for page in pages:
-            all_pages.append(
-                f"--- Page: {page.url_page} ---\n{page.contenu_scrape}"
-            )
-    return "\n\n".join(all_pages)
 
 
 def count_tokens(text: str) -> int:
@@ -183,7 +159,7 @@ def check_transport_fare_content(text: str) -> tuple[bool, list]:
 def format_tags_and_providers(
     text: str, siren: str, name: str
 ) -> tuple[List[str], List[str]]:
-    """Extrait les tags ET les fournisseurs en une seule passe optimisée"""
+    """Extrait les tags ET les fournisseurs en une seule fois optimisée"""
     run = get_current_run_tree()
     st.session_state.run_ids["format_tags_and_providers"] = run.id
 
@@ -277,31 +253,32 @@ if "crawler_manager" not in st.session_state:
 # Interface Streamlit
 st.subheader("Sélection de l'AOM")
 
-# Get unique AOMs with their URLs
-with engine.connect() as conn:
-    aoms = conn.execute(
-        text(
-            """
-            SELECT DISTINCT
-                t.n_siren_aom,
-                a.nom_aom,
-                COUNT(DISTINCT t.url_source) as nb_sources,
-                STRING_AGG(DISTINCT t.url_source, ' | ') as sources
-            FROM tarification_raw t
-            LEFT JOIN aoms a ON t.n_siren_aom = a.n_siren_aom
-            GROUP BY t.n_siren_aom, a.nom_aom
-            ORDER BY COUNT(DISTINCT t.url_source) DESC, a.nom_aom
-            """
+
+async def get_aom_transport_offers():
+    try:
+        # Get GristDataService instance
+        grist_service = GristDataService.get_instance(
+            api_key=os.getenv("GRIST_API_KEY")
         )
-    ).fetchall()
+        doc_id = os.getenv("GRIST_DOC_INTERMEDIARY_ID")
+
+        aoms = await grist_service.get_aom_transport_offers(doc_id)
+        return aoms
+    except Exception as e:
+        st.error(f"Erreur lors de la connexion à Grist : {str(e)}")
+        return []
+
+
+aoms = asyncio.run(get_aom_transport_offers())
 
 selected_aom = st.selectbox(
     "Sélectionner une AOM:",
-    options=[aom[0] for aom in aoms],
+    options=[aom.n_siren_groupement for aom in aoms],
     format_func=lambda x: (
         f"{x} - "
-        f"{next((a[1] for a in aoms if a[0] == x), 'Unknown')} "
-        f"({next((a[2] for a in aoms if a[0] == x), 0)} sources)"
+        f"{next((a.nom_aom for a in aoms if a.n_siren_groupement == x), 'Unknown')} "
+        f"({sum(1 for a in aoms if a.n_siren_groupement == x and a.site_web_principal)} source"
+        f"{'s' if sum(1 for a in aoms if a.n_siren_groupement == x and a.site_web_principal) > 1 else ''})"
     ),
     key="selected_aom",
     on_change=lambda: (
@@ -328,12 +305,26 @@ selected_aom = st.selectbox(
 )
 
 if selected_aom:
-    n_siren_aom = next((a[0] for a in aoms if a[0] == selected_aom), None)
-    nom_aom = next((a[1] for a in aoms if a[0] == selected_aom), "Nom inconnu")
-    sources = next((a[3] for a in aoms if a[0] == selected_aom), "")
+    n_siren_aom = next(
+        (a.n_siren_aom for a in aoms if a.n_siren_groupement == selected_aom),
+        None,
+    )
+    nom_aom = next(
+        (a.nom_aom for a in aoms if a.n_siren_groupement == selected_aom),
+        "Nom inconnu",
+    )
+    # Collect all site_web_principal values for this AOM
+    sources = " | ".join(
+        [
+            a.site_web_principal
+            for a in aoms
+            if a.n_siren_groupement == selected_aom and a.site_web_principal
+        ]
+    )
     st.write("Sources pour cet AOM:")
     for source in sources.split(" | "):
-        st.write(f"- {source}")
+        if source:  # Only display non-empty sources
+            st.write(f"- {source}")
 
     # Step 1: Scraping
     if "available_keywords" not in st.session_state:
@@ -442,31 +433,6 @@ if selected_aom:
             # Sauvegarder dans session_state pour les étapes suivantes
             st.session_state.scraped_content = scraped_content
 
-        else:
-            # Fallback sur la base de données (code existant)
-            sources = next(
-                (a[3] for a in aoms if a[0] == selected_aom), ""
-            ).split(" | ")
-            scraped_content = ""
-            for i, source in enumerate(sources):
-                content = get_aom_content_by_source(selected_aom, source)
-                scraped_content += content + "\n\n"
-            nb_tokens = count_tokens(scraped_content)
-            st.write(f"Nombre de tokens : {nb_tokens}")
-            sources_content = {}
-            tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
-
-            # Concaténer le contenu de toutes les sources
-            for i, source in enumerate(sources):
-                with tabs[i]:
-                    st.write(f"URL: {source}")
-                    content = get_aom_content_by_source(selected_aom, source)
-                    sources_content[source] = content
-                    st.markdown(content)
-
-            # Sauvegarder dans session_state pour les étapes suivantes
-            st.session_state.scraped_content = scraped_content
-
     # Step 3: Filtrage du contenu
     with st.expander("🎯 Task 3 : Filtrage du contenu"):
         # Vérifier si l'étape précédente est complétée
@@ -552,6 +518,9 @@ if selected_aom:
             ):
                 # Réinitialiser le résultat de classification si le modèle change
                 st.session_state.pop("tsst_classification_result", None)
+                st.session_state.model_changed = (
+                    True  # Set this to True when model changes
+                )
                 st.session_state.previous_model_name = (
                     st.session_state.selected_model_name
                 )
@@ -559,6 +528,8 @@ if selected_aom:
         # Initialiser les variables de session si elles n'existent pas
         if "previous_model_name" not in st.session_state:
             st.session_state.previous_model_name = list(LLM_MODELS.keys())[0]
+        if "model_changed" not in st.session_state:
+            st.session_state.model_changed = False
 
         # Sélecteur de modèle LLM avec détection de changement
         selected_model_name = st.selectbox(

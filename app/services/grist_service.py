@@ -246,6 +246,37 @@ class GristDataService:
             )
             raise
 
+    async def get_aom_transport_offers(
+        self, doc_id: str
+    ) -> List[AomTransportOffer]:
+        """
+        Retrieve AomTransportOffer from Grist
+
+        Args:
+            doc_id: The Grist document ID to use for this operation
+        """
+        try:
+            base = f"{self.base_url}/api/docs/{doc_id}"
+            url = f"{base}/tables/AomTransportOffers/records"
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list):
+                return [
+                    AomTransportOffer.model_validate(record["fields"])
+                    for record in data
+                ]
+            elif isinstance(data, dict) and "records" in data:
+                return [
+                    AomTransportOffer.model_validate(record["fields"])
+                    for record in data["records"]
+                ]
+            else:
+                raise ValueError(f"Format de données inattendu: {type(data)}")
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération des aoms: {e}")
+            raise
+
     async def delete_aom_transport_offers(
         self, offers: List[AomTransportOffer], doc_id: str
     ) -> Dict[str, Union[int, List[Dict]]]:
@@ -319,7 +350,7 @@ class GristDataService:
             )
             raise
 
-    async def add_aom_transport_offers(
+    async def update_aom_transport_offers(
         self, offers: List[AomTransportOffer], doc_id: str
     ) -> Dict[str, Union[int, List[Dict]]]:
         """
