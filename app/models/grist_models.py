@@ -124,7 +124,7 @@ class Aom(BaseModel):
     adresse_mail: Optional[str] = None
 
 
-class TransportOffer(BaseModel):
+class ComarquageTransportOffer(BaseModel):
     metadata_title: str
     _id: str
     last_update: datetime
@@ -270,3 +270,121 @@ class TransportOffer(BaseModel):
     class Config:
         # Allow the use of field names with special characters in the original data
         populate_by_name = True
+
+
+class ComarquageAom(BaseModel):
+    metadata_title: str
+    id2: str
+    last_update: datetime
+    nom_de_l_aom: str
+    commune_principale: str
+    departement: str
+    region: str
+    forme_juridique: str
+    nombre_de_membres: Optional[int] = None
+    nombre_de_communes_du_rt: Optional[int] = None
+    population_de_l_aom: Optional[int] = None
+    surface_km2: Optional[float] = None
+    site_de_l_aom: Optional[str] = None
+    lien_base_banatic: Optional[str] = None
+    ndeg_siren: Optional[int] = None
+    id_reseau: Optional[int] = None
+    nom_du_president: Optional[str] = None
+    adresse_du_siege: Optional[str] = None
+    adresse_mail: Optional[str] = None
+    offres_sur_le_territoire_de_l_aom: Optional[str] = None
+    comite_des_partenaires: Optional[str] = None
+    lien_vers_la_deliberation_d_installation_du_comite_des_partenaires: Optional[
+        str
+    ] = None
+    plan_de_mobilite_pdu_ou_pdm: Optional[str] = None
+    plan_de_mobilite_simplifie_ou_assimile: Optional[str] = None
+    annee_d_approbation_du_pdms_ou_assimile: Optional[int] = None
+    bassins_de_mobilite_sur_le_rt_de_l_aom: Optional[str] = None
+    territoire_s_concerne_s: Optional[str] = None
+    taux_de_versement_mobilite_moyen: Optional[str] = None
+
+    @validator(
+        "nombre_de_membres",
+        "nombre_de_communes_du_rt",
+        "population_de_l_aom",
+        "ndeg_siren",
+        "id_reseau",
+        "annee_d_approbation_du_pdms_ou_assimile",
+        pre=True,
+    )
+    def parse_numeric(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return None
+
+    @validator("surface_km2", pre=True)
+    def parse_surface(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, float):
+            return value
+        try:
+            # Gère les cas comme "123,45" (virgule française)
+            if isinstance(value, str) and "," in value:
+                value = value.replace(",", ".")
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+
+class AomTransportOffer(BaseModel):
+    # Informations AOM
+    n_siren_groupement: int
+    n_siren_aom: int
+    nom_aom: str
+    commune_principale_aom: str
+    nombre_commune_aom: int
+    population_aom: int
+    surface_km_2: Optional[float] = None
+    id_reseau_aom: Optional[int] = None
+
+    # Informations offre de transport
+    nom_commercial: Optional[str] = None
+    exploitant: Optional[str] = None
+    site_web_principal: Optional[str] = None
+    territoire_s_concerne_s: Optional[str] = None
+    type_de_contrat: Optional[str] = None
+
+    # Validateurs similaires à ceux des autres modèles pour les champs numériques
+    @validator(
+        "population_aom",
+        "nombre_commune_aom",
+        "n_siren_aom",
+        "n_siren_groupement",
+        "id_reseau_aom",
+        pre=True,
+    )
+    def parse_numeric(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return None
+
+    @validator("surface_km_2", pre=True)
+    def parse_surface(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, float):
+            return value
+        try:
+            # Gère les cas comme "123,45" (virgule française)
+            if isinstance(value, str) and "," in value:
+                value = value.replace(",", ".")
+            return float(value)
+        except (ValueError, TypeError):
+            return None

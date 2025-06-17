@@ -8,16 +8,16 @@ import pandas as pd
 import pyexcel_ods3
 import requests
 import streamlit as st
-from constants.urls import URL_PASSIM
+from constants.urls import URL_PASSIM_AOMS, URL_PASSIM_OFFRES_TRANSPORT
 from dotenv import load_dotenv
-from models.grist_models import Aom, DownloadedAom
+from models.grist_models import Aom, AomTransportOffer, DownloadedAom
 from services.grist_service import GristDataService
 from services.transport_gouv_client import get_aom_dataset
 from utils.parser_utils import format_column
 
 # Page configuration
 st.set_page_config(
-    page_title="Mise à jour de la BDD",
+    page_title="Mise à jour du jeu de données",
     page_icon="🔄",
     layout="wide",
 )
@@ -226,8 +226,26 @@ async def update_aoms_in_grist(
         # Get GristDataService instance
         grist_service = GristDataService.get_instance(
             api_key=os.getenv("GRIST_API_KEY"),
-            doc_id=os.getenv("GRIST_DOC_INPUTDATA_ID"),
         )
+
+        # Get document ID
+        input_data_doc_id = os.getenv("GRIST_DOC_INPUTDATA_ID")
+
+        # First, delete any records that are no longer needed
+        status_placeholder.info("Suppression des enregistrements obsolètes...")
+        try:
+            delete_result = await grist_service.delete_aoms(
+                aoms, doc_id=input_data_doc_id
+            )
+            if delete_result.get("deleted", 0) > 0:
+                status_placeholder.info(
+                    f"{delete_result.get('deleted')} enregistrements obsolètes supprimés"
+                )
+        except Exception as e:
+            error_msg = f"Exception lors de la suppression des enregistrements obsolètes: {str(e)}"
+            logging.exception(error_msg)
+            status_placeholder.warning(error_msg)
+            # Continue with the update even if deletion fails
 
         # Create progress tracking
         status_placeholder.info("Mise à jour des données dans Grist...")
@@ -251,7 +269,9 @@ async def update_aoms_in_grist(
 
             try:
                 # Update AOM data for this batch
-                await grist_service.update_aoms(batch)
+                await grist_service.update_aoms(
+                    batch, doc_id=input_data_doc_id
+                )
 
                 # Always consider the update successful since we're getting a 200 response
                 # The actual response is displayed with st.info in the UI
@@ -295,14 +315,21 @@ async def fetch_current_data():
         # Get GristDataService instance
         grist_service = GristDataService.get_instance(
             api_key=os.getenv("GRIST_API_KEY"),
-            doc_id=os.getenv("GRIST_DOC_INPUTDATA_ID"),
         )
 
         # Fetch data
-        aoms = await grist_service.get_aoms()
-        transport_offers = await grist_service.get_transport_offers()
+        input_data_doc_id = os.getenv("GRIST_DOC_INPUTDATA_ID")
+        aoms = await grist_service.get_aoms(doc_id=input_data_doc_id)
+        comarquage_transport_offers = (
+            await grist_service.get_comarquage_transport_offers(
+                doc_id=input_data_doc_id
+            )
+        )
+        comarquage_aoms = await grist_service.get_comarquage_aoms(
+            doc_id=input_data_doc_id
+        )
 
-        return aoms, transport_offers
+        return aoms, comarquage_transport_offers, comarquage_aoms
     except Exception as e:
         st.error(
             f"Erreur lors de la récupération des données depuis Grist: {str(e)}"
@@ -382,8 +409,168 @@ def download_and_process_aom_data(
             os.unlink(file_path)
 
 
+def validate_aom_transport_offers(
+    data_df, status_placeholder, progress_placeholder
+):
+    """
+    Validate AOM transport offers data with Pydantic
+
+    Args:
+        data_df: DataFrame containing AOMs with transport offers
+        status_placeholder: Streamlit placeholder for status updates
+        progress_placeholder: Streamlit placeholder for progress bar
+
+    Returns:
+        List of validated AomTransportOffer objects
+    """
+    status_placeholder.info(
+        f"Validation de {len(data_df)} enregistrements avec Pydantic..."
+    )
+    validated_data = []
+    errors = 0
+
+    progress_bar = progress_placeholder.progress(0)
+
+    # Process each row in the DataFrame
+    for idx, row in data_df.iterrows():
+        try:
+            # Convert row to dict and validate with AomTransportOffer model
+            row_dict = row.to_dict()
+            aom_offer = AomTransportOffer.model_validate(row_dict)
+            validated_data.append(aom_offer)
+        except Exception as e:
+            # Capture validation errors
+            record_num = idx + 1
+            error_message = str(e)
+            status_placeholder.error(
+                f"Erreur de validation pour l'enregistrement {record_num}: {error_message}"
+            )
+            errors += 1
+
+        # Update progress
+        progress = min((idx + 1) / len(data_df), 1.0)
+        progress_bar.progress(progress)
+
+    # Complete progress
+    progress_bar.progress(1.0)
+
+    status_placeholder.success(
+        f"Validation terminée: {len(validated_data)} objets valides, {errors} erreur{'s' if errors > 0 else ''}"
+    )
+
+    progress_bar.empty()
+
+    return validated_data
+
+
+async def upload_aoms_with_offers(
+    data_df, status_placeholder, progressbar_placeholder
+):
+    """
+    Upload AOMs with transport offers to Grist
+
+    Args:
+        data_df: DataFrame containing AOMs with transport offers
+        status_placeholder: Streamlit placeholder for status updates
+        progressbar_placeholder: Streamlit placeholder for progress bar
+
+    Returns:
+        True if update was successful, False otherwise
+    """
+    try:
+        # Get GristDataService instance
+        grist_service = GristDataService.get_instance(
+            api_key=os.getenv("GRIST_API_KEY"),
+        )
+
+        # Get document ID
+        intermediary_doc_id = os.getenv("GRIST_DOC_INTERMEDIARY_ID")
+
+        # Create progress tracking
+        status_placeholder.info("Validation des données...")
+
+        # Validate data with Pydantic
+        validated_offers = validate_aom_transport_offers(
+            data_df, status_placeholder, progressbar_placeholder
+        )
+
+        if not validated_offers:
+            status_placeholder.error("Aucune donnée valide à mettre à jour")
+            return False
+
+        # First, delete any records that are no longer needed
+        status_placeholder.info("Suppression des enregistrements obsolètes...")
+        try:
+            delete_result = await grist_service.delete_aom_transport_offers(
+                validated_offers, doc_id=intermediary_doc_id
+            )
+            if delete_result.get("deleted", 0) > 0:
+                status_placeholder.info(
+                    f"{delete_result.get('deleted')} enregistrements obsolètes supprimés"
+                )
+        except Exception as e:
+            error_msg = f"Exception lors de la suppression des enregistrements obsolètes: {str(e)}"
+            logging.exception(error_msg)
+            status_placeholder.warning(error_msg)
+            # Continue with the update even if deletion fails
+
+        status_placeholder.info(
+            f"Mise à jour de {len(validated_offers)} offres de transport dans Grist..."
+        )
+        progress_bar = progressbar_placeholder.progress(0)
+
+        # Define batch size for better performance
+        batch_size = 50
+
+        # Create batches
+        batches = [
+            validated_offers[i : i + batch_size]
+            for i in range(0, len(validated_offers), batch_size)
+        ]
+        total_batches = len(batches)
+
+        # Process each batch
+        total_updated = 0
+        for i, batch in enumerate(batches):
+            status_placeholder.info(
+                f"Traitement du lot {i+1}/{total_batches} ({len(batch)} offres par batch)"
+            )
+
+            try:
+                # Add AOM transport offers for this batch
+                await grist_service.add_aom_transport_offers(
+                    batch, doc_id=intermediary_doc_id
+                )
+
+                # Count updated records
+                total_updated += len(batch)
+
+                # Update progress
+                progress = min((i + 1) / total_batches, 1.0)
+                progress_bar.progress(progress)
+            except Exception as e:
+                error_msg = f"Exception lors de la mise à jour du lot {i+1}/{total_batches}: {str(e)}"
+                logging.exception(error_msg)
+                status_placeholder.error(error_msg)
+                return False
+
+        # Complete progress
+        progress_bar.progress(1.0)
+        status_placeholder.success(
+            f"Total des enregistrements mis à jour: {total_updated}"
+        )
+        progress_bar.empty()
+
+        return True
+    except Exception as e:
+        status_placeholder.error(
+            f"Erreur lors de la mise à jour des données: {str(e)}"
+        )
+        return False
+
+
 # Main UI
-st.header("🔄 Mise à jour des données d'entrée")
+st.header("🔄 Mise à jour du jeu de données")
 st.markdown(
     """
     - Cette page permet de mettre à jour les données des AOMs (Autorités Organisatrices de la Mobilité),
@@ -394,98 +581,409 @@ st.markdown(
 
 # Current data section
 with st.expander(
-    "Données actuellement disponibles dans Grist", expanded=False
+    "👀 Task 1 : visualisation des données d'entrée actuellement disponibles dans Grist",
+    expanded=False,
 ):
     # Fetch current data
-    aoms, transport_offers = asyncio.run(fetch_current_data())
+    aoms, comarquage_transport_offers, comarquage_aoms = asyncio.run(
+        fetch_current_data()
+    )
 
     # Display data tables
     if aoms:
-        st.metric("AOMs", len(aoms))
+        st.metric("AOMs source: transport.data.gouv", len(aoms))
         aoms_df = pd.DataFrame([aom.model_dump() for aom in aoms])
         st.dataframe(aoms_df)
 
-    if transport_offers:
-        st.metric("Offres de transport", len(transport_offers))
+    if comarquage_transport_offers:
+        st.metric(
+            "Offres de transport source: Passim / Comarquage",
+            len(comarquage_transport_offers),
+        )
         offers_df = pd.DataFrame(
-            [offer.model_dump() for offer in transport_offers]
+            [offer.model_dump() for offer in comarquage_transport_offers]
         )
         st.dataframe(offers_df)
 
-# AOM data section
-st.subheader("Mise à jour des données AOMs")
-st.markdown(
+    if comarquage_aoms:
+        st.metric("AOMs source: Passim / Comarquage", len(comarquage_aoms))
+        comarquage_aoms_df = pd.DataFrame(
+            [aom.model_dump() for aom in comarquage_aoms]
+        )
+        st.dataframe(comarquage_aoms_df)
+
+with st.expander(
+    "⬇️ Task 2 : download de la dernière version des données AOMs depuis **transport.data.gouv**",
+    expanded=False,
+):
+    st.markdown(
+        """
+        Les données des AOMs (Autorités Organisatrices de la Mobilité)
+        proviennent du **CEREMA** et sont formattées par **transport.gouv.fr**.
     """
-    Les données des AOMs (Autorités Organisatrices de la Mobilité)
-    proviennent du **CEREMA** et sont formattées par **transport.gouv.fr**.
-"""
-)
+    )
+    # Get dataset info
+    dataset_aoms = get_aom_dataset()
 
-# Get dataset info
-dataset_aoms = get_aom_dataset()
+    # Download section
+    download_container = st.container()
+    with download_container:
+        # Check if there was an error fetching the dataset info
+        if dataset_aoms and "error" in dataset_aoms:
+            st.error(
+                f"Erreur API lors de la récupération des informations sur le dataset: {dataset_aoms['error']}"
+            )
+        elif dataset_aoms:
+            # Show dataset info
+            st.info(
+                f"Dataset disponible: {dataset_aoms.get('title', 'Données AOMs')}"
+            )
 
-# Download section
-download_container = st.container()
-with download_container:
-    # Check if there was an error fetching the dataset info
-    if dataset_aoms and "error" in dataset_aoms:
-        st.error(
-            f"Erreur API lors de la récupération des informations sur le dataset: {dataset_aoms['error']}"
+            # Create a button to download the data
+            if st.button(
+                "📥 Télécharger et préparer les données AOMs",
+                key="btn_download",
+            ):
+                # Create a placeholder for progress updates
+                status_placeholder = st.empty()
+                progressbar_placeholder = st.empty()
+
+                # Download and process data
+                if download_and_process_aom_data(
+                    dataset_aoms, status_placeholder, progressbar_placeholder
+                ):
+                    # Success message
+                    st.success("✅ Données téléchargées avec succès!")
+
+                    # Show the number of validated AOMs
+                    if st.session_state.aoms_data:
+                        st.info(
+                            f"{len(st.session_state.aoms_data)} AOMs validées et prêtes à être mises à jour dans Grist"
+                        )
+        else:
+            st.error("Impossible de récupérer les informations sur le dataset")
+
+with st.expander(
+    "💾 Task 3 : upload des données AOMs dans Grist", expanded=False
+):
+    # Add a button to update the data in Grist if we have validated AOMs
+    if (
+        "aoms_data" in st.session_state
+        and len(st.session_state.aoms_data) > 0
+        and not st.session_state.update_performed
+    ):
+        st.markdown(
+            """
+        Les données ont été validées et sont prêtes à être mises à jour dans Grist.
+        Cliquez sur le bouton ci-dessous pour lancer la mise à jour.
+        """
         )
-    elif dataset_aoms:
-        # Show dataset info
-        st.info(
-            f"Dataset disponible: {dataset_aoms.get('title', 'Données AOMs')}"
-        )
 
-        # Create a button to download the data
         if st.button(
-            "📥 Télécharger et préparer les données AOMs",
-            key="btn_download",
+            "📤 Mettre à jour les données dans Grist", key="btn_update_grist"
         ):
-            # Create a placeholder for progress updates
             status_placeholder = st.empty()
             progressbar_placeholder = st.empty()
 
-            # Download and process data
-            if download_and_process_aom_data(
-                dataset_aoms, status_placeholder, progressbar_placeholder
+            # Update the data in Grist
+            if asyncio.run(
+                update_aoms_in_grist(
+                    st.session_state.aoms_data,
+                    status_placeholder,
+                    progressbar_placeholder,
+                )
             ):
-                # Success message
-                st.success("✅ Données téléchargées avec succès!")
+                st.success("✅ Données mises à jour avec succès dans Grist!")
+            else:
+                st.error(
+                    "❌ Erreur lors de la mise à jour des données dans Grist"
+                )
 
-                # Show the number of validated AOMs
-                if st.session_state.aoms_data:
-                    st.info(
-                        f"{len(st.session_state.aoms_data)} AOMs validées et prêtes à être mises à jour dans Grist"
-                    )
-    else:
-        st.error("Impossible de récupérer les informations sur le dataset")
+    # Reset update flag
+    if st.session_state.update_performed:
+        st.session_state.update_performed = False
 
-# Add a button to update the data in Grist if we have validated AOMs
-if (
-    "aoms_data" in st.session_state
-    and len(st.session_state.aoms_data) > 0
-    and not st.session_state.update_performed
+with st.expander(
+    "↕️ Task 4 : mise à jour des données Passim / Comarquage", expanded=False
 ):
-    st.subheader("Mise à jour des données dans Grist")
     st.markdown(
-        """
-    Les données ont été validées et sont prêtes à être mises à jour dans Grist.
-    Cliquez sur le bouton ci-dessous pour lancer la mise à jour.
+        """Les données sur les offres de transport proviennent de l'annuaire
+    Passim du Cerema.
     """
     )
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(
+            """
+        **Guide étape par étape :**
+        1. Cliquez sur le lien ci-dessous pour ouvrir le site dans un nouvel onglet
+        2. Accédez à la section **Offre de transport**
+        3. Cliquez sur le bouton "Exporter"
+        4. Sélectionnez le format CSV
+        5. Importez le fichier téléchargé dans la table **comarquage-offretransport** du grist
+        """
+        )
 
+        st.markdown(
+            f"""
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="{URL_PASSIM_OFFRES_TRANSPORT}" target="_blank"
+                    style="background-color: #4CAF50; color: white;
+                            padding: 10px 20px; text-decoration: none;
+                            border-radius: 5px; font-weight: bold;">
+                    Ouvrir Passim dans un nouvel onglet
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with col2:
+        st.markdown(
+            """
+        **Guide étape par étape :**
+        1. Cliquez sur le lien ci-dessous pour ouvrir le site dans un nouvel onglet
+        2. Accédez à la section **AOM**
+        3. Cliquez sur le bouton "Exporter"
+        4. Sélectionnez le format CSV
+        5. Importez le fichier téléchargé dans la table **comarquage-aom** du grist
+        """
+        )
+
+        st.markdown(
+            f"""
+            <div style="text-align: center; margin: 20px 0;">
+                <a href="{URL_PASSIM_AOMS}" target="_blank"
+                    style="background-color: #4CAF50; color: white;
+                            padding: 10px 20px; text-decoration: none;
+                            border-radius: 5px; font-weight: bold;">
+                    Ouvrir Passim dans un nouvel onglet
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+with st.expander(
+    "🧹 Task 5 : filtre des offres de transport pertinentes", expanded=False
+):
+    st.markdown(
+        """
+        Les données sur les offres de transport concernent aussi bien le transport collectif,
+        que le covoiturage, vélos, trotinettes etc. Par ailleurs, ces offres concercent des territoirers variés.
+        Pour associer une AOM à une ou plusieurs offres de transport, il convient de :
+            - filtrer les offres de transport pour ne garder que celles qui concernent le transport collectif
+            - filtrer les offres de transport pour ne garder que celles qui concernent le territoire de l'AOM
+        """
+    )
+    # Afficher les informations sur les dataframes
+    col1, col2 = st.columns(2)
+    with col1:
+        offers_df = offers_df[
+            (offers_df["type_de_transport"] == "Transport collectif régional")
+            | (offers_df["type_de_transport"] == "Transport collectif urbain")
+        ]
+        offers_df = offers_df[offers_df["territoire_s_concerne_s"] != ""]
+        offers_df = offers_df[offers_df["site_web_principal"] != ""]
+        st.info(
+            f"Nombre d'offres de transport collectif avec url renseignée: {len(offers_df)}"
+        )
+        st.info(
+            f"Nombre de territoires uniques dans les offres de transport collectif: {offers_df['territoire_s_concerne_s'].nunique()}"
+        )
+    with col2:
+        comarquage_aoms_df = comarquage_aoms_df[
+            comarquage_aoms_df["territoire_s_concerne_s"] != ""
+        ]
+        st.info(
+            f"Nombre d'AOMs du jeu de données **comarquage** avec territoires: {len(comarquage_aoms_df)}"
+        )
+        # Compter les territoires non-nuls
+        non_null_territoires = comarquage_aoms_df[
+            "territoire_s_concerne_s"
+        ].dropna()
+        st.info(
+            f"Nombre de territoires uniques dans les AOMs: {non_null_territoires.nunique()}"
+        )
+
+    # 1. Jointure complète (FULL OUTER JOIN)
+    st.subheader("1. Jointure complète (FULL OUTER JOIN)")
+    st.markdown(
+        "Cette jointure montre toutes les lignes des deux dataframes, avec des valeurs nulles lorsqu'il n'y a pas de correspondance."
+    )
+
+    # Effectuer la jointure
+    full_join = pd.merge(
+        offers_df,
+        comarquage_aoms_df,
+        on="territoire_s_concerne_s",
+        how="outer",
+        suffixes=("_offre", "_aom"),
+    )
+
+    # Afficher les résultats
+    st.metric("Nombre total de lignes après jointure complète", len(full_join))
+    st.data_editor(full_join, use_container_width=True, num_rows="dynamic")
+
+    # # 2. Offres sans correspondance dans les AOMs (LEFT JOIN + filtre)
+    st.subheader("2. Offres sans correspondance dans les AOMs")
+    st.markdown(
+        "Cette jointure montre les offres de transport qui n'ont pas de correspondance dans les AOMs Comarquage."
+    )
+
+    # # Effectuer la jointure à gauche
+    left_join = pd.merge(
+        offers_df,
+        comarquage_aoms_df,
+        on="territoire_s_concerne_s",
+        how="left",
+        suffixes=("_offre", "_aom"),
+    )
+
+    # Filtrer pour ne garder que les lignes sans correspondance
+    left_only = left_join[left_join["id2"].isna()]
+
+    # # Afficher les résultats
+    st.metric("Nombre d'offres sans correspondance", len(left_only))
+    st.dataframe(left_only)
+
+    # # 3. AOMs sans correspondance dans les offres (RIGHT JOIN + filtre)
+    st.subheader("3. AOMs sans correspondance dans les offres")
+    st.markdown(
+        "Cette jointure montre les AOMs Comarquage qui n'ont pas de correspondance dans les offres de transport."
+    )
+
+    # Effectuer la jointure à droite
+    right_join = pd.merge(
+        offers_df,
+        comarquage_aoms_df,
+        on="territoire_s_concerne_s",
+        how="right",
+        suffixes=("_offre", "_aom"),
+    )
+
+    # Filtrer pour ne garder que les lignes sans correspondance
+    right_only = right_join[right_join["last_update_offre"].isna()]
+
+    # Afficher les résultats
+    st.metric("Nombre d'AOMs sans correspondance", len(right_only))
+    st.dataframe(right_only)
+
+    # # 4. Jointure interne (INNER JOIN)
+    st.subheader("4. Jointure interne (INNER JOIN)")
+    st.markdown(
+        "Cette jointure montre uniquement les lignes qui ont une correspondance dans les deux dataframes."
+    )
+
+    # Effectuer la jointure interne
+    inner_join = pd.merge(
+        offers_df,
+        comarquage_aoms_df,
+        on="territoire_s_concerne_s",
+        how="inner",
+        suffixes=("_offre", "_aom"),
+    )
+
+    inner_join["ndeg_siren"] = inner_join["ndeg_siren"].astype("Int64")
+    aoms_df["n_siren_groupement"] = aoms_df["n_siren_groupement"].astype(
+        "Int64"
+    )
+
+    # Effectuer la jointure
+    aoms_with_offers = pd.merge(
+        inner_join,
+        aoms_df,
+        left_on="ndeg_siren",
+        right_on="n_siren_groupement",
+        how="inner",
+        suffixes=("_comarquage", "_aom"),
+    )
+
+    # Sélectionner les colonnes requises
+    aoms_with_offers_selected = aoms_with_offers[
+        [
+            "n_siren_groupement",
+            "n_siren_aom",
+            "nom_aom",
+            "commune_principale_aom",
+            "nombre_commune_aom",
+            "population_aom",
+            "surface_km_2",
+            "id_reseau_aom",
+            "nom_commercial",
+            "exploitant",
+            "site_web_principal",
+            "territoire_s_concerne_s",
+            "type_de_contrat",
+        ]
+    ]
+    # Afficher les résultats
+    st.metric(
+        "Nombre de correspondances trouvées", len(aoms_with_offers_selected)
+    )
+    st.dataframe(aoms_with_offers_selected)
+
+aoms_avec_offres = aoms_with_offers_selected["n_siren_groupement"].nunique()
+# Get unique AOMs first, then sum their population and surface to avoid counting multiple times
+unique_aoms_with_offers = aoms_with_offers_selected.drop_duplicates(
+    subset=["n_siren_groupement"]
+)
+population_avec_offres = unique_aoms_with_offers["population_aom"].sum()
+surface_avec_offres = unique_aoms_with_offers["surface_km_2"].sum()
+total_aoms = comarquage_aoms_df["ndeg_siren"].nunique()
+total_population = comarquage_aoms_df["population_de_l_aom"].sum()
+total_surface = comarquage_aoms_df["surface_km2"].sum()
+# Calculate coverage rates
+taux_couverture = (aoms_avec_offres / total_aoms) * 100
+taux_population = (population_avec_offres / total_population) * 100
+taux_surface = (surface_avec_offres / total_surface) * 100
+
+
+with st.expander(
+    "💾 Task 6 : upload AOMs avec offres de transport", expanded=False
+):
+    # Row 1: Total AOMs and AOMs with offers
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(
+            label="Nombre total d'AOMs dans la base", value=f"{total_aoms}"
+        )
+    with col2:
+        st.metric(
+            label="AOMs ayant au moins une offre de transport",
+            value=f"{aoms_avec_offres}",
+            delta=f"{aoms_avec_offres}/{total_aoms}",
+        )
+
+    # Row 2: Coverage rates
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            label="Taux de couverture des AOMs",
+            value=f"{taux_couverture:.2f}%",
+        )
+    with col2:
+        st.metric(
+            label="Taux de couverture de la surface",
+            value=f"{taux_surface:.2f}%",
+        )
+    with col3:
+        st.metric(
+            label="Taux de couverture de la population",
+            value=f"{taux_population:.2f}%",
+        )
+
+    # Bouton pour télécharger les données jointes dans Grist
     if st.button(
-        "📤 Mettre à jour les données dans Grist", key="btn_update_grist"
+        "📤 Mettre à jour les AOMs avec offres de transport dans Grist",
+        key="btn_update_aoms_with_offers",
     ):
         status_placeholder = st.empty()
         progressbar_placeholder = st.empty()
 
-        # Update the data in Grist
+        # Upload the data to Grist
         if asyncio.run(
-            update_aoms_in_grist(
-                st.session_state.aoms_data,
+            upload_aoms_with_offers(
+                aoms_with_offers_selected,
                 status_placeholder,
                 progressbar_placeholder,
             )
@@ -493,41 +991,3 @@ if (
             st.success("✅ Données mises à jour avec succès dans Grist!")
         else:
             st.error("❌ Erreur lors de la mise à jour des données dans Grist")
-
-# Reset update flag
-if st.session_state.update_performed:
-    st.session_state.update_performed = False
-
-
-# Passim section
-st.subheader("Mise à jour des données Passim")
-st.markdown(
-    """Les données sur les offres de transport proviennent de l'annuaire
-Passim du Cerema.
-"""
-)
-
-st.markdown(
-    """
-**Guide étape par étape :**
-1. Cliquez sur le lien ci-dessous pour ouvrir le site dans un nouvel onglet
-2. Accédez à la section Offre de transport
-3. Cliquez sur le bouton "Exporter"
-4. Sélectionnez le format CSV
-5. Importez le fichier téléchargé dans la table comarquage-offretransport du grist
-"""
-)
-
-st.markdown(
-    f"""
-    <div style="text-align: center; margin: 20px 0;">
-        <a href="{URL_PASSIM}" target="_blank"
-            style="background-color: #4CAF50; color: white;
-                    padding: 10px 20px; text-decoration: none;
-                    border-radius: 5px; font-weight: bold;">
-            Ouvrir Passim dans un nouvel onglet
-        </a>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
