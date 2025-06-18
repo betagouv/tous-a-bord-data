@@ -3,14 +3,7 @@ import os
 from datetime import datetime
 from typing import Dict, List
 
-import nest_asyncio
 import streamlit as st
-from streamlit_tags import st_tags
-
-# Initialize the event loop before importing crawl4ai
-# flake8: noqa: E402
-nest_asyncio.apply()
-
 import tiktoken
 from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
@@ -21,18 +14,11 @@ from services.evaluation_service import evaluation_service
 # Import pour l'évaluation HITL
 from services.grist_service import GristDataService
 from services.llm_services import LLM_MODELS
-from services.nlp_services import (
-    create_transport_fare_matcher,
-    extract_markdown_text,
-    extract_tags_and_providers,
-    filter_transport_fare,
-    load_spacy_model,
-    normalize_text,
-)
 
 # Import pour la classification TSST
 from services.tsst_spacy_llm_task import TSSTClassifier
 from star_ratings import star_ratings
+from streamlit_tags import st_tags
 from utils.crawler_utils import CrawlerManager
 
 # Configuration de la page pour utiliser plus de largeur
@@ -52,20 +38,16 @@ def extract_content(url_source, keywords):
     Returns:
         List of pages with extracted content
     """
-    # Create a new event loop for this extraction
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     try:
-        # Run the crawler and get the results
+        # Run the crawler and get the results with a timeout
         crawler_manager = CrawlerManager()
-        pages = loop.run_until_complete(
+        pages = asyncio.run(
             crawler_manager.fetch_content(url_source, keywords)
         )
         return pages
-    finally:
-        # Clean up the event loop
-        loop.close()
+    except Exception as e:
+        st.error(f"Erreur lors de l'extraction du contenu : {str(e)}")
+        return []
 
 
 def count_tokens(text: str) -> int:
@@ -79,15 +61,42 @@ if "run_ids" not in st.session_state:
     st.session_state.run_ids = {}
 
 
+def get_nlp_services():
+    from services.nlp_services import (
+        create_transport_fare_matcher,
+        extract_markdown_text,
+        extract_tags_and_providers,
+        filter_transport_fare,
+        load_spacy_model,
+        normalize_text,
+    )
+
+    return (
+        create_transport_fare_matcher,
+        extract_markdown_text,
+        extract_tags_and_providers,
+        filter_transport_fare,
+        load_spacy_model,
+        normalize_text,
+    )
+
+
 @traceable
 def filter_nlp(
-    content: str, model: str, siren: str, name: str
+    content: str,
 ) -> Dict[str, str]:
     """Filtre le contenu avec SpaCy"""
     try:
         run = get_current_run_tree()
         st.session_state.run_ids["filter"] = run.id
-
+        (
+            create_transport_fare_matcher,
+            extract_markdown_text,
+            extract_tags_and_providers,
+            filter_transport_fare,
+            load_spacy_model,
+            normalize_text,
+        ) = get_nlp_services()
         with st.spinner("Analyse automatique du langage naturel..."):
             nlp = load_spacy_model()
             raw_text = extract_markdown_text(content)
@@ -111,6 +120,14 @@ def check_transport_fare_content(text: str) -> tuple[bool, list]:
         tuple: (has_fares, fare_matches) où has_fares est un booléen indiquant si des tarifs ont été trouvés
                et fare_matches est une liste des correspondances avec leur contexte
     """
+    (
+        create_transport_fare_matcher,
+        extract_markdown_text,
+        extract_tags_and_providers,
+        filter_transport_fare,
+        load_spacy_model,
+        normalize_text,
+    ) = get_nlp_services()
     nlp = load_spacy_model()
     doc = nlp(text)
 
@@ -167,7 +184,14 @@ def format_tags_and_providers(
     """Extrait les tags ET les fournisseurs en une seule fois optimisée"""
     run = get_current_run_tree()
     st.session_state.run_ids["format_tags_and_providers"] = run.id
-
+    (
+        create_transport_fare_matcher,
+        extract_markdown_text,
+        extract_tags_and_providers,
+        filter_transport_fare,
+        load_spacy_model,
+        normalize_text,
+    ) = get_nlp_services()
     nlp = load_spacy_model()
 
     # UNE SEULE extraction pour tout
@@ -344,25 +368,18 @@ if selected_aom:
             for url_source in sources.split(" | "):
                 st.session_state.raw_scraped_content[url_source] = []
                 st.write(f"URL: {url_source}")
-                try:
-                    pages = extract_content(
-                        url_source, st.session_state.selected_keywords
-                    )
+                pages = extract_content(
+                    url_source, st.session_state.selected_keywords
+                )
 
-                    # Ajouter les pages à la liste globale
-                    for page in pages:
-                        st.session_state.raw_scraped_content[
-                            url_source
-                        ].append(
-                            {
-                                "url": page.url,
-                                "markdown": page.markdown,
-                            }
-                        )
-                except Exception as e:
-                    st.error(f"⚠️ Une erreur est survenue : {str(e)}")
-            st.session_state.is_crawling = False
-            st.rerun()
+                # Ajouter les pages à la liste globale
+                for page in pages:
+                    st.session_state.raw_scraped_content[url_source].append(
+                        {
+                            "url": page.url,
+                            "markdown": page.markdown,
+                        }
+                    )
 
     # Step 2: Affichage du contenu scrapé
     with st.expander("👀 Task 2 : Afficher le contenu scrapé"):
@@ -453,12 +470,7 @@ if selected_aom:
             if not scraped_content:
                 st.error("Veuillez d'abord charger le contenu dans l'étape 2")
                 st.stop()
-            filtered_result = filter_nlp(
-                scraped_content,
-                "custom_filter_v3",
-                n_siren_aom,
-                nom_aom,
-            )
+            filtered_result = filter_nlp(scraped_content)
             if filtered_result["Contenu filtré"].strip():
                 st.session_state.filtered_contents = filtered_result
                 st.success("Filtrage terminé")

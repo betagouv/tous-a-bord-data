@@ -1,6 +1,12 @@
 import logging
 from typing import List, Optional
 
+import nest_asyncio
+
+# Initialize the event loop before importing crawl4ai
+# flake8: noqa: E402
+nest_asyncio.apply()
+
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
 from crawl4ai.deep_crawling import DFSDeepCrawlStrategy
@@ -22,7 +28,6 @@ class CrawlerManager:
                 browser_type="chromium", headless=True, verbose=True
             )
             self.crawler = AsyncWebCrawler(config=browser_config)
-            await self.crawler.start()
         return self.crawler
 
     def _get_exclude_patterns(self):
@@ -63,6 +68,8 @@ class CrawlerManager:
             "*/a-la-demande/*",
             "*/trotinette/*",
             "*/carte-interactive/*",
+            "*login*",
+            "*cookie*",
         ]
 
     def _should_exclude_url(self, url, patterns):
@@ -85,8 +92,8 @@ class CrawlerManager:
         scorer = KeywordRelevanceScorer(keywords=keywords, weight=1000.0)
 
         scraping_strategy = DFSDeepCrawlStrategy(
-            max_depth=4,
-            max_pages=10,
+            max_depth=5,
+            max_pages=5,
             include_external=False,
             url_scorer=scorer,
             filter_chain=FilterChain([exclude_filter]),
@@ -100,10 +107,10 @@ class CrawlerManager:
             scan_full_page=True,
             wait_for_images=True,
             # Add delays to avoid detection
-            mean_delay=2.0,
+            mean_delay=1.0,
             # Additional pause (seconds) before final HTML is captured.
             delay_before_return_html=1.0,
-            scroll_delay=2.0,
+            scroll_delay=1.0,
             # Simulate a user
             simulate_user=True,
             # Automatic handling of popups/consent banners. Experimental
@@ -122,6 +129,4 @@ class CrawlerManager:
             return await crawler.arun(url=url, config=run_config)
         except Exception as e:
             self.logger.warning(f"Erreur lors du crawling: {str(e)}")
-            if self.crawler:
-                await self.crawler.stop()
-                self.crawler = None
+            raise e
