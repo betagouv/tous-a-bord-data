@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, ClassVar, Dict, Optional, Set
+from typing import Any, ClassVar, Dict, List, Optional, Set
 
 from pydantic import BaseModel, Field, root_validator, validator
 
@@ -388,3 +388,14 @@ class AomTransportOffer(BaseModel):
             return float(value)
         except (ValueError, TypeError):
             return None
+
+
+class AomWithTags(AomTransportOffer):
+    """
+    Extension du modèle AomTransportOffer avec des champs supplémentaires
+    pour les tags, fournisseurs et statuts.
+    """
+
+    labels: Optional[List[str]] = None
+    fournisseurs: Optional[List[str]] = None
+    status: Optional[str] = None
