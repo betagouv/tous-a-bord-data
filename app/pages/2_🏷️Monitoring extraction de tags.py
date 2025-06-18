@@ -3,6 +3,12 @@ import os
 from datetime import datetime
 from typing import Dict, List
 
+import nest_asyncio
+
+# Initialize the event loop before importing crawl4ai
+# flake8: noqa: E402
+nest_asyncio.apply()
+
 import streamlit as st
 import tiktoken
 from constants.keywords import DEFAULT_KEYWORDS
@@ -376,24 +382,31 @@ if selected_aom:
             st.write(f"Nombre de tokens : {nb_tokens}")
 
             total_pages = sum(len(pages) for pages in sources.values())
-            tabs = st.tabs([f"Page {i+1}" for i in range(total_pages)])
 
-            # Compteur pour suivre l'index de l'onglet actuel
-            tab_index = 0
+            # Vérifier s'il y a au moins une page avant de créer les onglets
+            if total_pages > 0:
+                tabs = st.tabs([f"Page {i+1}" for i in range(total_pages)])
 
-            # Parcourir chaque source et ses pages
-            for i, (url_source, pages) in enumerate(sources.items()):
-                # Afficher chaque page de la source dans un onglet distinct
-                for page in pages:
-                    with tabs[tab_index]:
-                        st.write(f"Source {i+1}")
-                        st.write(
-                            f"Date d'extraction: {datetime.now().strftime('%Y-%m-%d')}"
-                        )
-                        st.write(f"URL source: {url_source}")
-                        st.write(f"URL: {page['url']}")
-                        st.markdown(page["markdown"])
-                    tab_index += 1
+                # Compteur pour suivre l'index de l'onglet actuel
+                tab_index = 0
+
+                # Parcourir chaque source et ses pages
+                for i, (url_source, pages) in enumerate(sources.items()):
+                    # Afficher chaque page de la source dans un onglet distinct
+                    for page in pages:
+                        with tabs[tab_index]:
+                            st.write(f"Source {i+1}")
+                            st.write(
+                                f"Date d'extraction: {datetime.now().strftime('%Y-%m-%d')}"
+                            )
+                            st.write(f"URL source: {url_source}")
+                            st.write(f"URL: {page['url']}")
+                            st.markdown(page["markdown"])
+                        tab_index += 1
+            else:
+                st.warning(
+                    "⚠️ Aucune page n'a été extraite. Essayez de relancer l'extraction ou de choisir une autre AOM."
+                )
 
             # Sauvegarder dans session_state pour les étapes suivantes
             st.session_state.scraped_content = scraped_content

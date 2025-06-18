@@ -1,11 +1,6 @@
 import logging
-from typing import List, Optional
-
-import nest_asyncio
-
-# Initialize the event loop before importing crawl4ai
-# flake8: noqa: E402
-nest_asyncio.apply()
+import sys
+from typing import List
 
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
@@ -13,22 +8,20 @@ from crawl4ai.deep_crawling import DFSDeepCrawlStrategy
 from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+)
+logger = logging.getLogger("crawler_manager")
+
 
 class CrawlerManager:
     """Crawler manager with initialization and reset."""
 
     def __init__(self):
-        self.crawler: Optional[AsyncWebCrawler] = None
-        self.logger = logging.getLogger("crawler_manager")
-
-    async def init_crawler(self) -> AsyncWebCrawler:
-        """Initialize the crawler if it doesn't already exist."""
-        if self.crawler is None:
-            browser_config = BrowserConfig(
-                browser_type="chromium", headless=True, verbose=True
-            )
-            self.crawler = AsyncWebCrawler(config=browser_config)
-        return self.crawler
+        pass
 
     def _get_exclude_patterns(self):
         """Return the list of URL patterns to exclude."""
@@ -79,11 +72,15 @@ class CrawlerManager:
 
     async def fetch_content(self, url: str, keywords: List[str]):
         """Fetch the content of a URL with deep crawling."""
+        logger.info(f"Démarrage du crawling pour l'URL: {url}")
+
+        # Kill any existing browser processes to ensure a clean environment
         exclude_patterns = self._get_exclude_patterns()
         # Check if the starting URL should be excluded
         if self._should_exclude_url(url, exclude_patterns):
-            self.logger.warning(f"Starting URL excluded by filters: {url}")
+            logger.warning(f"Starting URL excluded by filters: {url}")
             return None
+
         # Create the exclusion filter
         exclude_filter = URLPatternFilter(
             patterns=exclude_patterns,
@@ -125,9 +122,16 @@ class CrawlerManager:
             verbose=True,
         )
 
+        # Configuration du navigateur
+        browser_config = BrowserConfig(
+            browser_type="chromium", headless=True, verbose=True
+        )
+
         try:
-            crawler = await self.init_crawler()
-            return await crawler.arun(url=url, config=run_config)
+            # Utiliser le gestionnaire de contexte pour garantir la fermeture
+            async with AsyncWebCrawler(config=browser_config) as crawler:
+                return await crawler.arun(url=url, config=run_config)
         except Exception as e:
-            self.logger.warning(f"Erreur lors du crawling: {str(e)}")
-            raise e
+            logger.error(f"Erreur lors du crawling: {str(e)}")
+            # Return an empty list instead of raising an exception
+            return []
