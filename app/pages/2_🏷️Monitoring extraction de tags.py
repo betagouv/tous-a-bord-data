@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Dict, List
 
 import nest_asyncio
-import pandas as pd
 import streamlit as st
 from streamlit_tags import st_tags
 
@@ -33,34 +32,40 @@ from services.nlp_services import (
 
 # Import pour la classification TSST
 from services.tsst_spacy_llm_task import TSSTClassifier
-from sqlalchemy import create_engine, text
 from star_ratings import star_ratings
 from utils.crawler_utils import CrawlerManager
 
 # Configuration de la page pour utiliser plus de largeur
 st.set_page_config(page_title="Extraction des tags", layout="wide")
-
-# Ajouter du CSS pour les conteneurs scrollables
-st.markdown(
-    """
-<style>
-.scrollable-container {
-    max-height: 400px;
-    overflow-y: auto;
-    padding: 10px;
-    border: 1px solid #e0e0e0;
-    border-radius: 5px;
-    margin-bottom: 20px;
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
+st.title("Extraction des tags")
 load_dotenv()
 
 
-st.title("Extraction des tags")
+def extract_content(url_source, keywords):
+    """
+    Extract content from a URL using the crawler.
+
+    Args:
+        url_source: The URL to crawl
+        keywords: List of keywords to search for
+
+    Returns:
+        List of pages with extracted content
+    """
+    # Create a new event loop for this extraction
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        # Run the crawler and get the results
+        crawler_manager = CrawlerManager()
+        pages = loop.run_until_complete(
+            crawler_manager.fetch_content(url_source, keywords)
+        )
+        return pages
+    finally:
+        # Clean up the event loop
+        loop.close()
 
 
 def count_tokens(text: str) -> int:
@@ -229,27 +234,6 @@ def show_evaluation_interface(step_name: str, content: str) -> None:
                 st.error("❌ Erreur lors de la sauvegarde")
 
 
-def toggle_crawling():
-    if "is_crawling" not in st.session_state:
-        st.session_state.is_crawling = False
-
-    st.session_state.is_crawling = not st.session_state.is_crawling
-    return st.session_state.is_crawling
-
-
-# init crawler
-if "crawler_manager" not in st.session_state:
-
-    def reset_crawler_callback():
-        st.session_state.crawler_manager = None
-
-    st.session_state.crawler_manager = CrawlerManager(
-        on_crawler_reset=reset_crawler_callback
-    )
-    st.session_state.loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(st.session_state.loop)
-
-
 # Interface Streamlit
 st.subheader("Sélection de l'AOM")
 
@@ -351,19 +335,9 @@ if selected_aom:
             default=st.session_state.selected_keywords,
         )
 
-        # Boutons existants pour démarrer/arrêter l'extraction
-        stop_button = st.button(
-            "🛑 Arrêter l'extraction",
-            help="Cliquez pour arrêter l'extraction en cours",
-            disabled=not st.session_state.get("is_crawling", False),
-            on_click=toggle_crawling,
-        )
-
         start_button = st.button(
             "🕷️ Lancer l'extraction",
             help="Cliquez pour lancer l'extraction des données sur les sites web",
-            disabled=st.session_state.get("is_crawling", False),
-            on_click=toggle_crawling,
         )
         if start_button:
             st.session_state.raw_scraped_content = {}
@@ -371,15 +345,10 @@ if selected_aom:
                 st.session_state.raw_scraped_content[url_source] = []
                 st.write(f"URL: {url_source}")
                 try:
-                    # Scraper l'URL
-                    loop = st.session_state.loop
-                    asyncio.set_event_loop(loop)
-                    pages = loop.run_until_complete(
-                        st.session_state.crawler_manager.fetch_content(
-                            url_source,
-                            st.session_state.selected_keywords,
-                        )
+                    pages = extract_content(
+                        url_source, st.session_state.selected_keywords
                     )
+
                     # Ajouter les pages à la liste globale
                     for page in pages:
                         st.session_state.raw_scraped_content[

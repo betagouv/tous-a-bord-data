@@ -1,5 +1,4 @@
 import logging
-import sys
 from typing import List, Optional
 
 from crawl4ai import AsyncWebCrawler
@@ -9,48 +8,11 @@ from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
 
 
-class DebugDFSStrategy(DFSDeepCrawlStrategy):
-    """Strategy for DFS with detailed logging for debugging."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.logger = self._setup_logger()
-
-    def _setup_logger(self):
-        """Configure and return a logger for debugging."""
-        logger = logging.getLogger("link_discovery_debug")
-        logger.setLevel(logging.DEBUG)
-        # Avoid duplicate handlers
-        if not logger.handlers:
-            handler = logging.StreamHandler(sys.stdout)
-            formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-        return logger
-
-    async def link_discovery(
-        self, result, source_url, current_depth, visited, next_links, depths
-    ):
-        """Override the link discovery method with logging."""
-        self.logger.debug(
-            f"Link discovery for {source_url} at depth {current_depth}"
-        )
-        self.logger.debug(f"Already visited links: {visited}")
-        await super().link_discovery(
-            result, source_url, current_depth, visited, next_links, depths
-        )
-        self.logger.debug(f"After discovery - new links: {next_links}")
-        self.logger.debug("-------------------")
-
-
 class CrawlerManager:
     """Crawler manager with initialization and reset."""
 
-    def __init__(self, on_crawler_reset=None):
+    def __init__(self):
         self.crawler: Optional[AsyncWebCrawler] = None
-        self.on_crawler_reset = on_crawler_reset
         self.logger = logging.getLogger("crawler_manager")
 
     async def init_crawler(self) -> AsyncWebCrawler:
@@ -140,7 +102,7 @@ class CrawlerManager:
             # Add delays to avoid detection
             mean_delay=2.0,
             # Additional pause (seconds) before final HTML is captured.
-            delay_before_return_html=5.0,
+            delay_before_return_html=1.0,
             scroll_delay=2.0,
             # Simulate a user
             simulate_user=True,
@@ -163,6 +125,3 @@ class CrawlerManager:
             if self.crawler:
                 await self.crawler.stop()
                 self.crawler = None
-                if self.on_crawler_reset:
-                    self.on_crawler_reset()
-            raise
