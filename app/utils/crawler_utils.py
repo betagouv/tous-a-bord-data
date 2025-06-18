@@ -70,6 +70,7 @@ class CrawlerManager:
             "*/carte-interactive/*",
             "*login*",
             "*cookie*",
+            "*files*",
         ]
 
     def _should_exclude_url(self, url, patterns):

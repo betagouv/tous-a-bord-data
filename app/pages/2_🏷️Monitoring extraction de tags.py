@@ -27,6 +27,7 @@ st.title("Extraction des tags")
 load_dotenv()
 
 
+@traceable
 def extract_content(url_source, keywords):
     """
     Extract content from a URL using the crawler.
@@ -38,6 +39,8 @@ def extract_content(url_source, keywords):
     Returns:
         List of pages with extracted content
     """
+    run = get_current_run_tree()
+    st.session_state.run_ids["scraping"] = run.id
     try:
         # Run the crawler and get the results with a timeout
         crawler_manager = CrawlerManager()
@@ -201,12 +204,12 @@ def show_evaluation_interface(step_name: str) -> None:
     st.subheader("✨ Évaluation")
 
     # Score avec star_ratings
-    stars = star_ratings("", numStars=5, key=f"stars_{step_name}")
+    stars = star_ratings("Évaluation", numStars=5, key=f"stars_{step_name}")
     quality_score = stars / 5 if stars is not None else 0
 
-    # Correction proposée
+    # Commentaire
     correction = st.text_area(
-        "Correction proposée (optionnel)",
+        "Commentaire (optionnel)",
         placeholder="Proposez une version corrigée du résultat...",
         key=f"correction_{step_name}",
     )
@@ -340,7 +343,6 @@ if selected_aom:
             st.session_state.raw_scraped_content = {}
             for url_source in sources.split(" | "):
                 st.session_state.raw_scraped_content[url_source] = []
-                st.write(f"URL: {url_source}")
                 pages = extract_content(
                     url_source, st.session_state.selected_keywords
                 )
@@ -353,13 +355,12 @@ if selected_aom:
                             "markdown": page.markdown,
                         }
                     )
+            st.success("✅ Extraction terminée")
 
     # Step 2: Affichage du contenu scrapé
     with st.expander("👀 Task 2 : Afficher le contenu scrapé"):
-        if (
-            "raw_scraped_content" in st.session_state
-            and st.session_state.raw_scraped_content
-        ):
+        if "raw_scraped_content" in st.session_state:
+
             # Utiliser les données en session
             sources = st.session_state.raw_scraped_content
 
@@ -374,23 +375,30 @@ if selected_aom:
             nb_tokens = count_tokens(scraped_content)
             st.write(f"Nombre de tokens : {nb_tokens}")
 
-            # Afficher le contenu par source
-            tabs = st.tabs([f"Source {i+1}" for i in range(len(sources))])
+            total_pages = sum(len(pages) for pages in sources.values())
+            tabs = st.tabs([f"Page {i+1}" for i in range(total_pages)])
 
+            # Compteur pour suivre l'index de l'onglet actuel
+            tab_index = 0
+
+            # Parcourir chaque source et ses pages
             for i, (url_source, pages) in enumerate(sources.items()):
-                with tabs[i]:
-                    st.write(f"Source {i+1}")
-                    st.write(
-                        f"Date d'extraction: {datetime.now().strftime('%Y-%m-%d')}"
-                    )
-                    st.write(f"URL source: {url_source}")
-                    # Afficher chaque page de la source
-                    for page in pages:
+                # Afficher chaque page de la source dans un onglet distinct
+                for page in pages:
+                    with tabs[tab_index]:
+                        st.write(f"Source {i+1}")
+                        st.write(
+                            f"Date d'extraction: {datetime.now().strftime('%Y-%m-%d')}"
+                        )
+                        st.write(f"URL source: {url_source}")
                         st.write(f"URL: {page['url']}")
                         st.markdown(page["markdown"])
+                    tab_index += 1
 
             # Sauvegarder dans session_state pour les étapes suivantes
             st.session_state.scraped_content = scraped_content
+            if len(scraped_content) > 0:
+                show_evaluation_interface("scraping")
 
     # Step 3: Filtrage du contenu
     with st.expander("🎯 Task 3 : Filtrage du contenu"):
@@ -493,10 +501,6 @@ if selected_aom:
             key="selected_model_name",
             on_change=on_model_change,
         )
-
-        # Afficher une notification si le modèle a changé
-        if st.session_state.model_changed:
-            st.success(f"✅ Modèle changé pour: {selected_model_name}")
 
         # Afficher le résultat de la classification TSST s'il existe
         if "tsst_classification_result" in st.session_state:
