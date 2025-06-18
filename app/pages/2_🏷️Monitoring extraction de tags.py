@@ -50,6 +50,7 @@ def extract_content(url_source, keywords):
     try:
         # Run the crawler and get the results with a timeout
         crawler_manager = CrawlerManager()
+        # Use asyncio.run() to create a new event loop for each request
         pages = asyncio.run(
             crawler_manager.fetch_content(url_source, keywords)
         )
@@ -259,6 +260,7 @@ async def get_aom_transport_offers():
         return []
 
 
+# Créer un nouvel event loop pour chaque requête
 aoms = asyncio.run(get_aom_transport_offers())
 
 selected_aom = st.selectbox(
@@ -273,6 +275,7 @@ selected_aom = st.selectbox(
     key="selected_aom",
     on_change=lambda: (
         # Nettoyer toutes les données de session quand on change d'AOM
+        os._exit(0),
         st.session_state.pop("raw_scraped_content", None),
         st.session_state.pop("scraped_content", None),
         st.session_state.pop("filtered_contents", None),
@@ -340,7 +343,6 @@ if selected_aom:
             options=st.session_state.available_keywords,
             default=st.session_state.selected_keywords,
         )
-
         start_button = st.button(
             "🕷️ Lancer l'extraction",
             help="Cliquez pour lancer l'extraction des données sur les sites web",
@@ -410,8 +412,6 @@ if selected_aom:
 
             # Sauvegarder dans session_state pour les étapes suivantes
             st.session_state.scraped_content = scraped_content
-            if len(scraped_content) > 0:
-                show_evaluation_interface("scraping")
 
     # Step 3: Filtrage du contenu
     with st.expander("🎯 Task 3 : Filtrage du contenu"):

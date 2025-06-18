@@ -1,6 +1,12 @@
 import logging
 import sys
-from typing import List
+from typing import List, Optional
+
+import nest_asyncio
+
+# Initialize the event loop before importing crawl4ai
+# flake8: noqa: E402
+nest_asyncio.apply()
 
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
@@ -21,7 +27,10 @@ class CrawlerManager:
     """Crawler manager with initialization and reset."""
 
     def __init__(self):
-        pass
+        # Configuration du navigateur
+        self.browser_config = BrowserConfig(
+            browser_type="chromium", headless=True, verbose=True
+        )
 
     def _get_exclude_patterns(self):
         """Return the list of URL patterns to exclude."""
@@ -74,7 +83,6 @@ class CrawlerManager:
         """Fetch the content of a URL with deep crawling."""
         logger.info(f"Démarrage du crawling pour l'URL: {url}")
 
-        # Kill any existing browser processes to ensure a clean environment
         exclude_patterns = self._get_exclude_patterns()
         # Check if the starting URL should be excluded
         if self._should_exclude_url(url, exclude_patterns):
@@ -122,16 +130,11 @@ class CrawlerManager:
             verbose=True,
         )
 
-        # Configuration du navigateur
-        browser_config = BrowserConfig(
-            browser_type="chromium", headless=True, verbose=True
-        )
-
         try:
-            # Utiliser le gestionnaire de contexte pour garantir la fermeture
-            async with AsyncWebCrawler(config=browser_config) as crawler:
+            # Create a new crawler for each request
+            async with AsyncWebCrawler(config=self.browser_config) as crawler:
                 return await crawler.arun(url=url, config=run_config)
         except Exception as e:
             logger.error(f"Erreur lors du crawling: {str(e)}")
             # Return an empty list instead of raising an exception
-            return []
+            raise e
