@@ -61,26 +61,6 @@ if "run_ids" not in st.session_state:
     st.session_state.run_ids = {}
 
 
-def get_nlp_services():
-    from services.nlp_services import (
-        create_transport_fare_matcher,
-        extract_markdown_text,
-        extract_tags_and_providers,
-        filter_transport_fare,
-        load_spacy_model,
-        normalize_text,
-    )
-
-    return (
-        create_transport_fare_matcher,
-        extract_markdown_text,
-        extract_tags_and_providers,
-        filter_transport_fare,
-        load_spacy_model,
-        normalize_text,
-    )
-
-
 @traceable
 def filter_nlp(
     content: str,
@@ -89,14 +69,13 @@ def filter_nlp(
     try:
         run = get_current_run_tree()
         st.session_state.run_ids["filter"] = run.id
-        (
-            create_transport_fare_matcher,
+        from services.nlp_services import (
             extract_markdown_text,
-            extract_tags_and_providers,
             filter_transport_fare,
             load_spacy_model,
             normalize_text,
-        ) = get_nlp_services()
+        )
+
         with st.spinner("Analyse automatique du langage naturel..."):
             nlp = load_spacy_model()
             raw_text = extract_markdown_text(content)
@@ -120,14 +99,11 @@ def check_transport_fare_content(text: str) -> tuple[bool, list]:
         tuple: (has_fares, fare_matches) où has_fares est un booléen indiquant si des tarifs ont été trouvés
                et fare_matches est une liste des correspondances avec leur contexte
     """
-    (
+    from services.nlp_services import (
         create_transport_fare_matcher,
-        extract_markdown_text,
-        extract_tags_and_providers,
-        filter_transport_fare,
         load_spacy_model,
-        normalize_text,
-    ) = get_nlp_services()
+    )
+
     nlp = load_spacy_model()
     doc = nlp(text)
 
@@ -184,14 +160,11 @@ def format_tags_and_providers(
     """Extrait les tags ET les fournisseurs en une seule fois optimisée"""
     run = get_current_run_tree()
     st.session_state.run_ids["format_tags_and_providers"] = run.id
-    (
-        create_transport_fare_matcher,
-        extract_markdown_text,
+    from services.nlp_services import (
         extract_tags_and_providers,
-        filter_transport_fare,
         load_spacy_model,
-        normalize_text,
-    ) = get_nlp_services()
+    )
+
     nlp = load_spacy_model()
 
     # UNE SEULE extraction pour tout
@@ -223,7 +196,7 @@ def format_tags_and_providers(
     return tags, providers
 
 
-def show_evaluation_interface(step_name: str, content: str) -> None:
+def show_evaluation_interface(step_name: str) -> None:
     """Affiche l'interface d'évaluation pour une étape"""
     st.subheader("✨ Évaluation")
 
@@ -455,10 +428,10 @@ if selected_aom:
                 st.error(
                     "⚠️ Aucune information sur les tarifs de transport n'a été détectée dans le contenu filtré."
                 )
-                show_evaluation_interface("filter", filtered_content)
+                show_evaluation_interface("filter")
                 st.stop()
 
-            show_evaluation_interface("filter", filtered_content)
+            show_evaluation_interface("filter")
 
         if st.button(
             "Lancer le filtrage",
@@ -539,7 +512,7 @@ if selected_aom:
                 st.error(
                     "❌ Le contenu ne concerne PAS la tarification sociale et solidaire des transports"
                 )
-                show_evaluation_interface("tsst_classification", str(result))
+                show_evaluation_interface("tsst_classification")
                 st.stop()
 
             # Afficher la justification si disponible
@@ -555,7 +528,7 @@ if selected_aom:
             st.code(result["response"], language="text")
 
             # Ajouter l'interface d'évaluation
-            show_evaluation_interface("tsst_classification", str(result))
+            show_evaluation_interface("tsst_classification")
 
         @traceable
         def classify_tsst(content: str, model_name: str) -> Dict:
@@ -803,7 +776,4 @@ if selected_aom:
                     "tags" in st.session_state
                     and "providers" in st.session_state
                 ):
-                    show_evaluation_interface(
-                        "format_tags_and_providers",
-                        f"Tags: {st.session_state.tags}, Providers: {st.session_state.providers}",
-                    )
+                    show_evaluation_interface("format_tags_and_providers")
