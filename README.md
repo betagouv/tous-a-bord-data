@@ -96,7 +96,7 @@ cz commit
 
 2. Installez les dépendances :
    ```bash
-   pip install -r app/requirements.txt
+   pip install -r requirements.txt
    tab/bin/python -m spacy download fr_core_news_lg
    ```
 
