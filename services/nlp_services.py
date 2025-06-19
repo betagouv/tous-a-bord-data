@@ -4,10 +4,11 @@ import markdown
 import spacy
 import streamlit as st
 from bs4 import BeautifulSoup
+from spacy.matcher import Matcher, PhraseMatcher
+
 from constants.entites_eligibilite import ENTITES
 from constants.tag_dp_mapping import BLACK_LIST, TAG_DP_MAPPING
 from constants.tokens_eligibilite import TOKENS_ELIGIBILITE
-from spacy.matcher import Matcher, PhraseMatcher
 
 # commons
 TOKENS_ELIGIBILITE = [token.lower() for token in TOKENS_ELIGIBILITE]

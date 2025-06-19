@@ -102,8 +102,7 @@ cz commit
 
 3. Lancez l'application Streamlit :
    ```bash
-   cd app
-   streamlit run app/main.py
+   streamlit run main.py
    ```
 
 4. Accédez à l'application dans votre navigateur à l'adresse [http://localhost:8501](http://localhost:8501)
@@ -112,7 +111,7 @@ cz commit
 
 1. Construisez l'image Docker :
    ```bash
-   docker build -t tous-a-bord-streamlit ./app
+   docker build -t tous-a-bord-streamlit .
    ```
 
 2. Lancez le conteneur :
