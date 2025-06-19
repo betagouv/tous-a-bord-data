@@ -40,8 +40,9 @@ RUN python -m spacy download fr_core_news_lg
 
 COPY . .
 
-EXPOSE 8501
+# Expose the port that will be used by Streamlit
+EXPOSE ${PORT:-8501}
 
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
-# --server.fileWatcherType=none fix spacy torch error
-ENTRYPOINT ["streamlit", "run", "🚎_Tags extraction - output.py", "--server.port=8501", "--server.address=0.0.0.0"] 
+HEALTHCHECK CMD curl --fail http://localhost:${PORT:-8501}/_stcore/health
+
+ENTRYPOINT ["sh", "-c", "streamlit run main.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]

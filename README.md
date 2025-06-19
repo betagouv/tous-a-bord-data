@@ -12,16 +12,6 @@ L'application nécessite Python 3.9.x. Pour vérifier votre version :
 python --version  # Doit afficher Python 3.9.x
 ```
 
-Si vous n'avez pas la bonne version :
-
-- [Python pour Windows](https://www.python.org/downloads/windows/)
-- [Python pour Mac](https://www.python.org/downloads/macos/)
-- Pour Linux :
-  ```bash
-  sudo add-apt-repository ppa:deadsnakes/ppa  # Pour Ubuntu
-  sudo apt update
-  sudo apt install python3.9
-  ```
 
 ### Docker
 
@@ -37,7 +27,6 @@ L'application fonctionne avec Docker. Si vous ne l'avez pas déjà installé :
 
 ```bash
 docker --version
-docker compose version
 ```
 
 ## Configuration de l'environnement de développement
@@ -98,80 +87,43 @@ cz commit
 
 ## Lancement de l'application
 
-### Démarrer l'application :
+### Option 1 : Exécution locale (sans Docker)
 
-```bash
-docker compose up
-```
+1. Activez votre environnement virtuel :
+   ```bash
+   source tab/bin/activate  # ou .\tab\Scripts\activate sur Windows
+   ```
 
-Ou en arrière-plan :
+2. Installez les dépendances :
+   ```bash
+   pip install -r app/requirements.txt
+   tab/bin/python -m spacy download fr_core_news_lg
+   ```
 
-```bash
-docker compose up -d
-```
+3. Lancez l'application Streamlit :
+   ```bash
+   cd app
+   streamlit run app/main.py
+   ```
 
-### Accéder à l'application :
+4. Accédez à l'application dans votre navigateur à l'adresse [http://localhost:8501](http://localhost:8501)
 
-   - Ouvrez votre navigateur
-   - Accédez à [http://localhost:8501](http://localhost:8501)
+### Option 2 : Exécution avec Docker
 
-### Arrêter l'application :
-   - Si lancée en mode attaché : utilisez `Ctrl+C`
-   - Si lancée en arrière-plan : `docker compose down`
+1. Construisez l'image Docker :
+   ```bash
+   docker build -t tous-a-bord-streamlit ./app
+   ```
 
-## Commandes Docker utiles
+2. Lancez le conteneur :
+   ```bash
+   docker run -p 8501:8501 --env-file .env tous-a-bord-streamlit
+   ```
 
-### Commandes de base
+   **Note importante :** Ne définissez pas la variable `PORT` dans votre fichier `.env` pour le développement local. Cette variable est réservée pour le déploiement sur Scalingo et sera automatiquement définie par la plateforme.
 
-```bash
-# Reconstruire les images
-docker compose up --build
+3. Accédez à l'application dans votre navigateur à l'adresse [http://localhost:8501](http://localhost:8501)
 
-# Voir les logs
-docker compose logs -f
+4. Pour arrêter le conteneur, utilisez `Ctrl+C` ou trouvez l'ID du conteneur avec `docker ps` puis exécutez `docker stop <container_id>`
 
-# Voir l'état des conteneurs
-docker compose ps
-
-# Supprimer les conteneurs en conservant les volumes
-docker compose down
-
-# Supprimer les conteneurs et les volumes
-docker compose down -v
-```
-
-### Gestion des volumes et des données PostgreSQL
-
-```bash
-# Lister tous les volumes Docker
-docker volume ls
-
-# Inspecter le volume PostgreSQL
-docker volume inspect aom-postgres-data
-
-# Supprimer un volume spécifique (attention: perte de données)
-docker volume rm aom-postgres-data
-
-# Supprimer tous les volumes non utilisés
-docker volume prune
-
-# Créer une sauvegarde (dump) de la base de données
-docker exec -t tous-a-bord-data-postgres-1 pg_dump -U ${POSTGRES_USER:-postgres} ${POSTGRES_DB:-postgres} > backup_$(date +%Y%m%d_%H%M%S).sql
-
-# Restaurer une sauvegarde
-cat backup_20230101_120000.sql | docker exec -i postgres psql -U ${POSTGRES_USER:-postgres} ${POSTGRES_DB:-postgres}
-```
-
-## Tests
-
-### Lancer les tests une fois
-
-```bash
-pytest app/tests/test_parser_utils.py -v
-```
-
-### Ou en mode watch pour le TDD
-
-```bash
-pytest-watch app/tests/test_parser_utils.py
-```
+## Déploiement sur Streamlit Cloud

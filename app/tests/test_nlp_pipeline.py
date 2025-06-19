@@ -1,9 +1,12 @@
+import os
 import sys
 
 import pytest
 
-# Ajouter le répertoire app au PYTHONPATH
-sys.path.insert(0, "/app")
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+)
+
 
 # flake8: noqa: E402
 from services.nlp_services import extract_tags_and_providers, load_spacy_model
