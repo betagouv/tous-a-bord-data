@@ -11,10 +11,13 @@ nest_asyncio.apply()
 
 import streamlit as st
 import tiktoken
-from constants.keywords import DEFAULT_KEYWORDS
 from dotenv import load_dotenv
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
+from star_ratings import star_ratings
+from streamlit_tags import st_tags
+
+from constants.keywords import DEFAULT_KEYWORDS
 from services.evaluation_service import evaluation_service
 
 # Import pour l'évaluation HITL
@@ -23,8 +26,6 @@ from services.llm_services import LLM_MODELS
 
 # Import pour la classification TSST
 from services.tsst_spacy_llm_task import TSSTClassifier
-from star_ratings import star_ratings
-from streamlit_tags import st_tags
 from utils.crawler_utils import CrawlerManager
 
 # Configuration de la page pour utiliser plus de largeur
