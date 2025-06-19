@@ -1,9 +1,7 @@
 streamlit>=1.41.1,<2.0.0
-psycopg2-binary>=2.9.9,<3.0.0
 python-dotenv>=1.0.1,<2.0.0
 pandas>=2.2.3,<3.0.0
 requests>=2.31.0,<3.0.0
-pydantic>=2.0.0,<3.0.0
 anthropic>=0.8.1
 pytest>=7.4.3,<8.0.0
 numpy>=1.26.0,<2.0.0
@@ -16,13 +14,10 @@ openai
 spacy
 markdown
 tiktoken
-odfpy
 # LangChain et LangSmith pour le système d'évaluation HITL
 langchain>=0.1.0,<0.2.0
 langsmith>=0.1.0,<0.2.0
 langchain-core>=0.1.0,<0.2.0
 streamlit-star-ratings
 streamlit-tags
-openpyxl
-xlsxwriter
 pyexcel_ods3

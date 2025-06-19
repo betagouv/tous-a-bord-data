@@ -822,7 +822,7 @@ with st.expander(
 
     # Afficher les résultats
     st.metric("Nombre total de lignes après jointure complète", len(full_join))
-    st.data_editor(full_join, use_container_width=True, num_rows="dynamic")
+    # st.dataframe(full_join)
 
     # # 2. Offres sans correspondance dans les AOMs (LEFT JOIN + filtre)
     st.subheader("2. Offres sans correspondance dans les AOMs")
@@ -844,7 +844,7 @@ with st.expander(
 
     # # Afficher les résultats
     st.metric("Nombre d'offres sans correspondance", len(left_only))
-    st.dataframe(left_only)
+    # st.dataframe(left_only)
 
     # # 3. AOMs sans correspondance dans les offres (RIGHT JOIN + filtre)
     st.subheader("3. AOMs sans correspondance dans les offres")
@@ -866,7 +866,7 @@ with st.expander(
 
     # Afficher les résultats
     st.metric("Nombre d'AOMs sans correspondance", len(right_only))
-    st.dataframe(right_only)
+    # st.dataframe(right_only)
 
     # # 4. Jointure interne (INNER JOIN)
     st.subheader("4. Jointure interne (INNER JOIN)")

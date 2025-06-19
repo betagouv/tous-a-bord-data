@@ -7,11 +7,13 @@ from dotenv import load_dotenv
 from services.grist_service import GristDataService
 from utils.dataframe_utils import filter_dataframe
 
+# Configuration de la page Streamlit (DOIT ÊTRE EN PREMIER)
 st.set_page_config(
-    page_title="Jeu de données des critères d'éligibilité par AOM",
+    page_title="Critères d'éligibilité à la tarification sociale et solidaire des transports",
     page_icon="🚌",
     layout="wide",
 )
+
 
 load_dotenv()
 
@@ -52,9 +54,7 @@ except Exception as e:
     st.error(f"Erreur lors du chargement des données: {str(e)}")
     st.session_state.aoms_data = pd.DataFrame()
 
-st.header(
-    "Critères d'éligibilité aux tarifs sociaux et solidaires des transports"
-)
+
 # Search bar
 search_term = st.text_input(
     "🔍 Rechercher dans toutes les colonnes",
