@@ -41,11 +41,8 @@ RUN python -m spacy download fr_core_news_lg
 COPY . .
 
 # Expose the port that will be used by Streamlit
-# For Scalingo, we'll use the PORT environment variable
 EXPOSE ${PORT:-8501}
 
-# Health check using the appropriate port
 HEALTHCHECK CMD curl --fail http://localhost:${PORT:-8501}/_stcore/health
-# --server.fileWatcherType=none fix spacy torch error
-# Use PORT environment variable for Scalingo compatibility
+
 ENTRYPOINT ["sh", "-c", "streamlit run main.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]
