@@ -23,7 +23,7 @@ async def fetch_aoms_from_grist():
         # Utilisation du singleton pattern
         grist_service = GristDataService.get_instance(
             api_key=os.getenv("GRIST_API_KEY"),
-            doc_id=os.getenv("GRIST_DOC_INPUTDATA_ID"),
+            doc_id=os.getenv("GRIST_DOC_INPUT_ID"),
         )
         aoms = await grist_service.get_aoms()
         return pd.DataFrame([aom.model_dump() for aom in aoms])

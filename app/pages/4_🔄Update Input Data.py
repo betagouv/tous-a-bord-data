@@ -229,7 +229,7 @@ async def update_aoms_in_grist(
         )
 
         # Get document ID
-        input_data_doc_id = os.getenv("GRIST_DOC_INPUTDATA_ID")
+        input_data_doc_id = os.getenv("GRIST_DOC_INPUT_ID")
 
         # First, delete any records that are no longer needed
         status_placeholder.info("Suppression des enregistrements obsolètes...")
@@ -318,7 +318,7 @@ async def fetch_current_data():
         )
 
         # Fetch data
-        input_data_doc_id = os.getenv("GRIST_DOC_INPUTDATA_ID")
+        input_data_doc_id = os.getenv("GRIST_DOC_INPUT_ID")
         aoms = await grist_service.get_aoms(doc_id=input_data_doc_id)
         comarquage_transport_offers = (
             await grist_service.get_comarquage_transport_offers(

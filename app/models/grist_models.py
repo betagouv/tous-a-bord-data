@@ -390,7 +390,7 @@ class AomTransportOffer(BaseModel):
             return None
 
 
-class AomWithTags(AomTransportOffer):
+class AomTags(AomTransportOffer):
     """
     Extension du modèle AomTransportOffer avec des champs supplémentaires
     pour les tags, fournisseurs et statuts.

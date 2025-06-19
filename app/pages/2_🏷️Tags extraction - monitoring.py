@@ -252,7 +252,6 @@ async def get_aom_transport_offers():
             api_key=os.getenv("GRIST_API_KEY")
         )
         doc_id = os.getenv("GRIST_DOC_INTERMEDIARY_ID")
-
         aoms = await grist_service.get_aom_transport_offers(doc_id)
         return aoms
     except Exception as e:

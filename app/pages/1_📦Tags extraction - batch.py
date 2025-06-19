@@ -1,53 +1,55 @@
 import asyncio
+import logging
 import os
 
 import pandas as pd
 import streamlit as st
 from constants.keywords import DEFAULT_KEYWORDS
-from models.grist_models import AomWithTags
+from models.grist_models import AomTags
 from services.batch_tag_extraction import BatchProcessor
 from services.grist_service import GristDataService
 from services.llm_services import LLM_MODELS
 
-# Configuration de la page
-st.set_page_config(page_title="Traitement Batch", layout="wide", page_icon="🔄")
 
-# Section de traitement batch
-st.header("🔄 Traitement batch")
-st.markdown(
-    "Cette section permet de lancer un traitement batch pour plusieurs AOMs en utilisant les configurations définies ci-dessus."
-)
+# utils
+def on_page_load():
+    if "batch_processing_active" not in st.session_state:
+        st.session_state.batch_processing_active = False
+    if "batch_results" not in st.session_state:
+        st.session_state.batch_results = []
+    if "aoms_with_tags" not in st.session_state:
+        st.session_state.aoms_with_tags = []
 
-# Initialiser les variables de session pour le batch
-if "batch_processing_active" not in st.session_state:
-    st.session_state.batch_processing_active = False
-if "batch_results" not in st.session_state:
-    st.session_state.batch_results = []
+    if "available_keywords" not in st.session_state:
+        st.session_state.available_keywords = DEFAULT_KEYWORDS.copy()
 
-# Récupérer les configurations des expanders
-batch_config = {
-    "keywords": st.session_state.get(
-        "selected_keywords", DEFAULT_KEYWORDS.copy()
-    ),
-    "model_name": st.session_state.get(
-        "selected_model_name", list(LLM_MODELS.keys())[0]
-    ),
-}
+    # Initialiser la configuration dans session_state
+    if "batch_config" not in st.session_state:
+        st.session_state.batch_config = {
+            "keywords": st.session_state.get(
+                "selected_keywords", DEFAULT_KEYWORDS.copy()
+            ),
+            "model_name": st.session_state.get(
+                "selected_model_name", list(LLM_MODELS.keys())[0]
+            ),
+        }
+    logging.info("Page 'Tags extraction - batch' chargée et initialisée")
 
-# Afficher les configurations actuelles
-st.subheader("Configuration actuelle")
-col1, col2 = st.columns(2)
-with col1:
-    st.write("**Keywords pour scraping:**")
-    st.write(", ".join(batch_config["keywords"]))
-with col2:
-    st.write("**Modèle pour classification:**")
-    st.write(batch_config["model_name"])
+
+def reset_crawlers():
+    logging.info("reset_crawlers")
+    os._exit(0)
+
+
+def change_config():
+    st.session_state.batch_config = {
+        "keywords": st.session_state.selected_keywords,
+        "model_name": st.session_state.selected_model_name,
+    }
 
 
 async def get_aom_transport_offers():
     try:
-        # Get GristDataService instance
         grist_service = GristDataService.get_instance(
             api_key=os.getenv("GRIST_API_KEY")
         )
@@ -60,17 +62,124 @@ async def get_aom_transport_offers():
         return []
 
 
+def update_progress(current, total, result=None):
+    progress = current / total
+    progress_bar.progress(progress)
+    status_text.text(
+        f"Progression: {current}/{total} AOMs traités ({progress:.1%})"
+    )
+
+
+async def save_to_grist(aoms_with_tags, status_placeholder, progress_bar):
+    grist_service = GristDataService.get_instance(
+        api_key=os.getenv("GRIST_API_KEY")
+    )
+    doc_id = os.getenv("GRIST_DOC_OUTPUT_ID")
+    delete_result = await grist_service.delete_aom_tags(aoms_with_tags, doc_id)
+    if delete_result.get("deleted", 0) > 0:
+        st.info(f"{delete_result.get('deleted')} enregistrements supprimés")
+    batch_size = 50
+
+    batches = [
+        aoms_with_tags[i : i + batch_size]
+        for i in range(0, len(aoms_with_tags), batch_size)
+    ]
+    total_batches = len(batches)
+
+    total_updated = 0
+    for i, batch in enumerate(batches):
+        st.info(
+            f"Traitement du lot {i+1}/{total_batches} ({len(batch)} aoms par batch)"
+        )
+
+        await grist_service.update_aom_tags(batch, doc_id=doc_id)
+        total_updated += len(batch)
+        progress = min((i + 1) / total_batches, 1.0)
+        progress_bar.progress(progress)
+
+    progress_bar.progress(1.0)
+
+    status_placeholder.success(
+        f"Total des enregistrements mis à jour: {total_updated}"
+    )
+    progress_bar.empty()
+
+
+# UI
+if "page_loaded" not in st.session_state:
+    st.session_state.page_loaded = True
+    on_page_load()
+
+st.set_page_config(page_title="Traitement Batch", layout="wide", page_icon="📦")
+
+st.header("📦 Traitement batch")
+st.markdown(
+    "Cette section permet de lancer un traitement batch pour plusieurs AOMs en utilisant les configurations définies ci-dessus."
+)
+st.markdown("Avant tout traitement batch, penser à **reset les crawlers** 👇")
+
+if st.button(
+    "♻️ Reset les crawlers", type="secondary", use_container_width=True
+):
+    reset_crawlers()
+
+if "batch_processing_active" not in st.session_state:
+    st.session_state.batch_processing_active = False
+if "batch_results" not in st.session_state:
+    st.session_state.batch_results = []
+
+
+st.subheader("Configuration")
+
+if "available_keywords" not in st.session_state:
+    st.session_state.available_keywords = DEFAULT_KEYWORDS.copy()
+
+
+new_keyword = st.text_input(
+    "Ajouter un nouveau mot-clé :",
+    placeholder="Entrez un nouveau mot-clé et appuyez sur Entrée",
+    help="Le nouveau mot-clé sera ajouté à la liste disponible",
+)
+
+if new_keyword:
+    if new_keyword not in st.session_state.available_keywords:
+        st.session_state.available_keywords.append(new_keyword)
+        # Mettre à jour batch_config directement au lieu de selected_keywords
+        if (
+            "batch_config" in st.session_state
+            and "keywords" in st.session_state.batch_config
+        ):
+            if new_keyword not in st.session_state.batch_config["keywords"]:
+                st.session_state.batch_config["keywords"].append(new_keyword)
+        st.rerun()
+
+selected_keywords = st.multiselect(
+    "Mots-clés :",
+    options=st.session_state.available_keywords,
+    default=st.session_state.batch_config.get(
+        "keywords", DEFAULT_KEYWORDS.copy()
+    ),
+    key="selected_keywords",
+    on_change=change_config,
+)
+
+st.write("**Modèle pour classification:**")
+selected_model_name = st.selectbox(
+    "Modèle LLM à utiliser",
+    options=list(LLM_MODELS.keys()),
+    index=0,
+    key="selected_model_name",
+    on_change=change_config,
+)
+
 aoms = asyncio.run(get_aom_transport_offers())
 
-# Bouton pour lancer le traitement batch
 if st.button(
     "🚀 Lancer le traitement batch", type="primary", use_container_width=True
 ):
-    # Réinitialiser les résultats précédents
     st.session_state.batch_results = []
     st.session_state.batch_processing_active = True
 
-    # Conteneurs pour l'affichage en temps réel
     progress_container = st.container()
     results_container = st.container()
 
@@ -78,32 +187,26 @@ if st.button(
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # Fonction pour mettre à jour la progression
-        def update_progress(current, total, result):
-            progress = current / total
-            progress_bar.progress(progress)
-            status_text.text(
-                f"Progression: {current}/{total} AOMs traités ({progress:.1%})"
-            )
-
         batch_processor = BatchProcessor(max_workers=4)
 
         # Lancer le traitement batch
         with st.spinner("Traitement batch en cours..."):
             try:
-                # Configurer le batch processor avec les paramètres des expanders
-                batch_processor.keywords = batch_config["keywords"]
-                batch_processor.model_name = batch_config["model_name"]
+                # Configurer le batch processor avec les paramètres de la session_state
+                batch_processor.keywords = st.session_state.batch_config[
+                    "keywords"
+                ]
+                batch_processor.model_name = st.session_state.batch_config[
+                    "model_name"
+                ]
 
                 # Lancer le traitement
                 results = batch_processor.process_batch(
-                    aom_list=aoms[6:10], progress_callback=update_progress
+                    aom_list=aoms[2:3], progress_callback=update_progress
                 )
-
-                # Sauvegarder les résultats dans la session
                 st.session_state.batch_results = results
 
-                # Convertir les résultats en AomWithTags pour Grist
+                # Convertir les résultats en AomTags pour Grist
                 aoms_with_tags = []
                 for result in results:
                     if result.status == "success":
@@ -117,8 +220,7 @@ if st.button(
                             None,
                         )
 
-                        # Créer un objet AomWithTags
-                        aom_with_tags = AomWithTags(
+                        aom_with_tags = AomTags(
                             n_siren_groupement=int(result.n_siren_aom),
                             n_siren_aom=int(result.n_siren_aom),
                             nom_aom=result.nom_aom,
@@ -157,38 +259,10 @@ if st.button(
                             status=result.status,
                         )
                         aoms_with_tags.append(aom_with_tags)
-
-                # Sauvegarder les résultats dans Grist
-                if aoms_with_tags:
-
-                    async def save_to_grist():
-                        try:
-                            # Get GristDataService instance
-                            grist_service = GristDataService.get_instance(
-                                api_key=os.getenv("GRIST_API_KEY")
-                            )
-                            doc_id = os.getenv("GRIST_DOC_OUTPUT_ID")
-
-                            # Mettre à jour les AOMs avec tags dans Grist
-                            await grist_service.update_aom_with_tags_batch(
-                                aoms_with_tags, doc_id
-                            )
-                            return True
-                        except Exception as e:
-                            st.error(
-                                f"Erreur lors de la sauvegarde dans Grist: {str(e)}"
-                            )
-                            return False
-
-                    # Exécuter la fonction asynchrone
-                    success = asyncio.run(save_to_grist())
-                    if success:
-                        st.success("✅ Résultats sauvegardés dans Grist")
-
+                st.session_state["aoms_with_tags"] = aoms_with_tags
                 st.success(
                     f"✅ Traitement batch terminé pour {len(results)} AOMs"
                 )
-
             except Exception as e:
                 st.error(f"❌ Erreur lors du traitement batch: {str(e)}")
             finally:
@@ -202,151 +276,38 @@ if st.session_state.batch_results:
     for result in st.session_state.batch_results:
         # Emoji pour le statut
         status_emoji = {"success": "✅", "error": "❌", "no_data": "⚠️"}.get(
-            result.status, "❔"
+            result.status, ""
         )
-
-        results_data.append(
-            {
-                "SIREN": result.n_siren_aom,
-                "Nom AOM": result.nom_aom,
-                "Statut": f"{status_emoji} {result.status}",
-                "Labels": ", ".join(result.tags) if result.tags else "",
-                "Fournisseurs": ", ".join(result.providers)
-                if result.providers
-                else "",
-                "Nb Labels": len(result.tags) if result.tags else 0,
-                "Nb Fournisseurs": len(result.providers)
-                if result.providers
-                else 0,
-                "Temps (s)": f"{result.processing_time:.1f}"
-                if result.processing_time
-                else "",
-                "Erreur": result.error_message or "",
-            }
-        )
+        setattr(result, "status", f"{status_emoji} {result.status}")
+        results_data.append(result)
 
     results_df = pd.DataFrame(results_data)
+    st.dataframe(results_df)
 
-    # Filtres pour le tableau
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        status_filter = st.selectbox(
-            "Filtrer par status",
-            ["Tous"]
-            + [
-                s.replace("✅ ", "").replace("❌ ", "").replace("⚠️ ", "")
-                for s in results_df["Statut"].unique()
-            ],
-            key="batch_status_filter",
+if len(st.session_state["aoms_with_tags"]) > 0:
+    aoms_dict_list = []
+    for aom in st.session_state["aoms_with_tags"]:
+        aom_dict = aom.dict()
+        # Ajouter l'emoji au statut
+        status_emoji = {"success": "✅", "error": "❌", "no_data": "⚠️"}.get(
+            aom_dict["status"], ""
         )
-
-    with col2:
-        min_tags = st.number_input(
-            "Nombre minimum de labels",
-            min_value=0,
-            value=0,
-            key="batch_min_tags_filter",
-        )
-
-    with col3:
-        search_term = st.text_input(
-            "Rechercher dans le nom", key="batch_search_filter"
-        )
-
-    # Appliquer les filtres
-    filtered_df = results_df.copy()
-
-    if status_filter != "Tous":
-        filtered_df = filtered_df[
-            filtered_df["Statut"].str.contains(status_filter)
-        ]
-
-    if min_tags > 0:
-        filtered_df = filtered_df[filtered_df["Nb Labels"] >= min_tags]
-
-    if search_term:
-        filtered_df = filtered_df[
-            filtered_df["Nom AOM"].str.contains(
-                search_term, case=False, na=False
+        # aom_dict["status"] = f"{status_emoji} {aom_dict['status']}"
+        aoms_dict_list.append(aom_dict)
+    st.dataframe(pd.DataFrame(aoms_dict_list))
+    if st.button(
+        "📤 Mettre à jour les critères d'éligibilité aux tarifs sociaux et solidaires des transports dans Grist",
+        key="btn_update_aoms_with_tags",
+    ):
+        # Sauvegarder les résultats dans Grist
+        status_placeholder = st.empty()
+        progressbar_placeholder = st.empty()
+        success = asyncio.run(
+            save_to_grist(
+                st.session_state["aoms_with_tags"],
+                status_placeholder,
+                progressbar_placeholder,
             )
-        ]
-
-    # Afficher le tableau filtré
-    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
-
-    # Bouton pour relancer les AOMs en erreur
-    if st.button("🔄 Relancer les AOMs en erreur", key="retry_batch_errors"):
-        error_aoms = [
-            result.n_siren_aom
-            for result in st.session_state.batch_results
-            if result.status == "error"
-        ]
-
-        if error_aoms:
-            st.session_state.batch_processing_active = True
-
-            # Initialiser le BatchProcessor
-            from services.batch_tag_extraction import BatchProcessor
-
-            batch_processor = BatchProcessor(max_workers=4)
-
-            # Configurer le batch processor avec les paramètres des expanders
-            batch_processor.keywords = batch_config["keywords"]
-            batch_processor.model_name = batch_config["model_name"]
-
-            # Conteneur pour la progression
-            progress_container = st.container()
-
-            with progress_container:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                # Fonction pour mettre à jour la progression
-                def update_progress(current, total, result):
-                    progress = current / total
-                    progress_bar.progress(progress)
-                    status_text.text(
-                        f"Progression: {current}/{total} AOMs traités ({progress:.1%})"
-                    )
-
-                # Lancer le traitement pour les AOMs en erreur
-                with st.spinner(
-                    f"Relancement de {len(error_aoms)} AOMs en erreur..."
-                ):
-                    try:
-                        results = batch_processor.process_batch(
-                            aom_list=error_aoms,
-                            progress_callback=update_progress,
-                        )
-
-                        # Mettre à jour les résultats dans la session
-                        # Remplacer les anciens résultats en erreur par les nouveaux
-                        updated_results = []
-                        for result in st.session_state.batch_results:
-                            # Si c'était une AOM en erreur, chercher le nouveau résultat
-                            if result.status == "error":
-                                new_result = next(
-                                    (
-                                        r
-                                        for r in results
-                                        if r.n_siren_aom == result.n_siren_aom
-                                    ),
-                                    result,  # Garder l'ancien si pas trouvé
-                                )
-                                updated_results.append(new_result)
-                            else:
-                                # Garder les résultats qui n'étaient pas en erreur
-                                updated_results.append(result)
-
-                        st.session_state.batch_results = updated_results
-                        st.success(
-                            f"✅ Relancement terminé pour {len(error_aoms)} AOMs"
-                        )
-                        st.rerun()  # Recharger la page pour afficher les nouveaux résultats
-
-                    except Exception as e:
-                        st.error(f"❌ Erreur lors du relancement: {str(e)}")
-                    finally:
-                        st.session_state.batch_processing_active = False
-        else:
-            st.info("Aucune AOM en erreur à relancer")
+        )
+        if success:
+            status_placeholder.success("✅ Résultats sauvegardés dans Grist")

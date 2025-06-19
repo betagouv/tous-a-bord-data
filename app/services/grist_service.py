@@ -5,8 +5,8 @@ import requests
 import streamlit as st
 from models.grist_models import (
     Aom,
+    AomTags,
     AomTransportOffer,
-    AomWithTags,
     ComarquageAom,
     ComarquageTransportOffer,
 )
@@ -396,93 +396,61 @@ class GristDataService:
             )
             raise
 
-    async def get_aom_with_tags(self, doc_id: str) -> List[AomWithTags]:
+    async def get_aom_tags(self, doc_id: str) -> List[AomTags]:
         """
-        Récupère les AOMs avec leurs tags depuis Grist
+        Retrieve AomTags from Grist
 
         Args:
-            doc_id: L'ID du document Grist à utiliser pour cette opération
+            doc_id: The Grist document ID to use for this operation
         """
         try:
             base = f"{self.base_url}/api/docs/{doc_id}"
-            url = f"{base}/tables/AomsLabels/records"
+            url = f"{base}/tables/AomLabels/records"
             response = requests.get(url, headers=self.headers)
             response.raise_for_status()
             data = response.json()
             if isinstance(data, list):
                 return [
-                    AomWithTags.model_validate(record["fields"])
-                    for record in data
+                    AomTags.model_validate(record["fields"]) for record in data
                 ]
             elif isinstance(data, dict) and "records" in data:
                 return [
-                    AomWithTags.model_validate(record["fields"])
+                    AomTags.model_validate(record["fields"])
                     for record in data["records"]
                 ]
             else:
                 raise ValueError(f"Format de données inattendu: {type(data)}")
         except Exception as e:
-            logging.error(
-                f"Erreur lors de la récupération des AOMs avec tags: {e}"
-            )
+            logging.error(f"Erreur lors de la récupération des aoms: {e}")
             raise
 
-    async def update_aom_with_tags(
-        self, aom_with_tags: AomWithTags, doc_id: str
+    async def delete_aom_tags(
+        self, aoms: List[AomTags], doc_id: str
     ) -> Dict[str, Union[int, List[Dict]]]:
         """
-        Met à jour une AOM avec ses tags dans Grist
+        Delete AOM transport offers in Grist
 
         Args:
-            aom_with_tags: L'objet AomsLabels à mettre à jour
-            doc_id: L'ID du document Grist à utiliser pour cette opération
-        """
-        try:
-            base = f"{self.base_url}/api/docs/{doc_id}"
-            url = f"{base}/tables/AomsLabels/records"
+            offers: List of AomTags objects to keep (all others will be deleted)
+            doc_id: The Grist document ID to use for this operation
 
-            # Formater l'enregistrement pour la requête API
-            aom_dict = aom_with_tags.model_dump()
-            record = {
-                "require": {
-                    "n_siren_groupement": aom_dict.get("n_siren_groupement")
-                },
-                "fields": aom_dict,
-            }
-
-            payload = {"records": [record]}
-
-            # Faire la requête PUT pour mettre à jour l'enregistrement
-            response = requests.put(url, headers=self.headers, json=payload)
-            response.raise_for_status()
-
-            return response.json()
-        except Exception as e:
-            logging.error(
-                f"Erreur lors de la mise à jour de l'AOM avec tags: {e}"
-            )
-            raise
-
-    async def delete_aom_with_tags(
-        self, n_siren_groupement: int, doc_id: str
-    ) -> Dict[str, Union[int, List[Dict]]]:
-        """
-        Supprime une AOM avec ses tags de Grist
-
-        Args:
-            n_siren_groupement: Le SIREN du groupement de l'AOM à supprimer
-            doc_id: L'ID du document Grist à utiliser pour cette opération
+        Returns:
+            Dict containing the response from Grist API
         """
         try:
             base = f"{self.base_url}/api/docs/{doc_id}"
 
-            # D'abord, récupérer tous les enregistrements actuels pour déterminer lesquels supprimer
-            get_url = f"{base}/tables/AomsLabels/records"
+            # First, get all current records to determine which ones to delete
+            get_url = f"{base}/tables/AomLabels/records"
             response = requests.get(get_url, headers=self.headers)
             response.raise_for_status()
             all_records = response.json()
 
-            # Trouver les enregistrements à supprimer
+            # Create a set of unique identifiers for the offers we want to keep
+            # Using a combination of n_siren_groupement and site_web_principal as identifiers
+            keep_identifiers = {aom.n_siren_groupement for aom in aoms}
+
+            # Find records to delete (those not in our keep list)
             rows_to_delete = []
             if isinstance(all_records, list):
                 records = all_records
@@ -496,15 +464,15 @@ class GristDataService:
             for record in records:
                 record_id = record.get("id")
                 fields = record.get("fields", {})
-                record_siren = fields.get("n_siren_groupement")
+                n_siren_groupement = fields.get("n_siren_groupement")
 
-                # Si cet enregistrement correspond au SIREN fourni, le marquer pour suppression
-                if record_siren == n_siren_groupement:
+                # If this record's identifier is not in our keep list, mark it for deletion
+                if (n_siren_groupement,) not in keep_identifiers:
                     rows_to_delete.append(record_id)
 
-            # S'il y a des lignes à supprimer, envoyer la requête de suppression
+            # If there are rows to delete, send the delete request
             if rows_to_delete:
-                delete_url = f"{base}/tables/AomsLabels/data/delete"
+                delete_url = f"{base}/tables/AomLabels/data/delete"
                 response = requests.post(
                     delete_url, headers=self.headers, json=rows_to_delete
                 )
@@ -514,37 +482,38 @@ class GristDataService:
                     "rowIds": rows_to_delete,
                 }
             else:
-                return {"deleted": 0, "message": "Aucune ligne à supprimer"}
+                return {"deleted": 0, "message": "No rows to delete"}
 
         except Exception as e:
             logging.error(
-                f"Erreur lors de la suppression de l'AOM avec tags: {e}"
+                f"Erreur lors de la suppression des critères d'éligibilité des AOMs: {e}"
             )
             raise
 
-    async def update_aom_with_tags_batch(
-        self, aoms_with_tags: List[AomWithTags], doc_id: str
+    async def update_aom_tags(
+        self, aoms: List[AomTags], doc_id: str
     ) -> Dict[str, Union[int, List[Dict]]]:
         """
-        Met à jour plusieurs AOMs avec leurs tags dans Grist en une seule opération
+        Update AOM transport offers in Grist
 
         Args:
-            aoms_with_tags: Liste d'objets AomWithTags à mettre à jour
-            doc_id: L'ID du document Grist à utiliser pour cette opération
+            offers: List of AomTags objects to update
+            doc_id: The Grist document ID to use for this operation
         """
         try:
             base = f"{self.base_url}/api/docs/{doc_id}"
-            url = f"{base}/tables/AomsLabels/records"
+            url = f"{base}/tables/AomLabels/records"
 
-            # Formater les enregistrements pour la requête API
+            # Format the records for the API request
             records = []
-            for aom in aoms_with_tags:
+            for aom in aoms:
                 aom_dict = aom.model_dump()
+                # Use a combination of n_siren_groupement and site_web_principal as identifiers
                 record = {
                     "require": {
                         "n_siren_groupement": aom_dict.get(
                             "n_siren_groupement"
-                        )
+                        ),
                     },
                     "fields": aom_dict,
                 }
@@ -552,13 +521,13 @@ class GristDataService:
 
             payload = {"records": records}
 
-            # Faire la requête PUT pour mettre à jour les enregistrements
+            # Make the PUT request to update the records
             response = requests.put(url, headers=self.headers, json=payload)
             response.raise_for_status()
 
             return response.json()
         except Exception as e:
             logging.error(
-                f"Erreur lors de la mise à jour des AOMs avec tags: {e}"
+                f"Erreur lors de la mise à jour des critères d'éligibilité des AOMs: {e}"
             )
             raise
