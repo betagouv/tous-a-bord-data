@@ -24,10 +24,10 @@ repos:
         args: ["--profile", "black", "--line-length", "79"]
   - repo: local
     hooks:
-      - id: pytest-docker
-        name: Run all tests in Docker
+      - id: pytest-local
+        name: Run all tests locally
         entry: bash
-        args: ['-c', 'docker-compose up -d streamlit && docker-compose exec -T streamlit pytest /app/tests/ -v']
+        args: ['-c', 'source tab/bin/activate && pytest app/tests/ -v']
         language: system
         pass_filenames: false
         always_run: true
