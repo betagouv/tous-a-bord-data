@@ -390,12 +390,60 @@ class AomTransportOffer(BaseModel):
             return None
 
 
-class AomTags(AomTransportOffer):
+class AomTags(BaseModel):
     """
     Extension du modèle AomTransportOffer avec des champs supplémentaires
     pour les tags, fournisseurs et statuts.
     """
 
-    labels: Optional[List[str]] = None
+    n_siren_groupement: int
+    n_siren_aom: int
+    nom_aom: str
+    commune_principale_aom: str
+    nombre_commune_aom: int
+    population_aom: Optional[int] = None
+    surface_km_2: Optional[float] = None
+    id_reseau_aom: Optional[int] = None
+
+    # Informations offre de transport
+    nom_commercial: Optional[str] = None
+    exploitant: Optional[str] = None
+    site_web_principal: Optional[str] = None
+    territoire_s_concerne_s: Optional[str] = None
+    type_de_contrat: Optional[str] = None
+
+    # Validateurs similaires à ceux des autres modèles pour les champs numériques
+    @validator(
+        "population_aom",
+        "nombre_commune_aom",
+        "n_siren_aom",
+        "n_siren_groupement",
+        "id_reseau_aom",
+        pre=True,
+    )
+    def parse_numeric(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return None
+
+    @validator("surface_km_2", pre=True)
+    def parse_surface(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, float):
+            return value
+        try:
+            # Gère les cas comme "123,45" (virgule française)
+            if isinstance(value, str) and "," in value:
+                value = value.replace(",", ".")
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    criteres_eligibilite: Optional[List[str]] = None
     fournisseurs: Optional[List[str]] = None
-    status: Optional[str] = None

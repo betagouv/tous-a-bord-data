@@ -17,7 +17,7 @@ from utils.parser_utils import format_column
 
 # Page configuration
 st.set_page_config(
-    page_title="Mise à jour du jeu de données",
+    page_title="Update input data",
     page_icon="🔄",
     layout="wide",
 )
@@ -570,7 +570,7 @@ async def upload_aoms_with_offers(
 
 
 # Main UI
-st.header("🔄 Mise à jour du jeu de données")
+st.header("🔄 Update input data")
 st.markdown(
     """
     - Cette page permet de mettre à jour les données des AOMs (Autorités Organisatrices de la Mobilité),

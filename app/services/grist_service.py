@@ -155,6 +155,7 @@ class GristDataService:
             # Format the records for the API request
             records = []
             for aom in aoms:
+                # Utiliser model_dump() au lieu de dict() pour les objets Pydantic
                 aom_dict = aom.model_dump()
                 # Use n_siren_aom as the identifier in the require object
                 record = {
@@ -168,6 +169,9 @@ class GristDataService:
                 records.append(record)
 
             payload = {"records": records}
+
+            # Log the payload for debugging
+            logging.info(f"Payload for update_aom_tags: {payload}")
 
             # Make the PUT request to update the records
             response = requests.put(url, headers=self.headers, json=payload)
@@ -385,6 +389,9 @@ class GristDataService:
 
             payload = {"records": records}
 
+            # Log the payload for debugging
+            logging.info(f"Payload for update_aom_tags: {payload}")
+
             # Make the PUT request to update the records
             response = requests.put(url, headers=self.headers, json=payload)
             response.raise_for_status()
@@ -405,7 +412,8 @@ class GristDataService:
         """
         try:
             base = f"{self.base_url}/api/docs/{doc_id}"
-            url = f"{base}/tables/AomLabels/records"
+            url = f"{base}/tables/AomEligibility/records"
+            logging.info(f"URL for get_aom_tags: {url}")
             response = requests.get(url, headers=self.headers)
             response.raise_for_status()
             data = response.json()
@@ -441,13 +449,14 @@ class GristDataService:
             base = f"{self.base_url}/api/docs/{doc_id}"
 
             # First, get all current records to determine which ones to delete
-            get_url = f"{base}/tables/AomLabels/records"
+            get_url = f"{base}/tables/AomEligibility/records"
+            logging.info(f"URL for delete_aom_tags (get): {get_url}")
             response = requests.get(get_url, headers=self.headers)
             response.raise_for_status()
             all_records = response.json()
 
             # Create a set of unique identifiers for the offers we want to keep
-            # Using a combination of n_siren_groupement and site_web_principal as identifiers
+            # Using n_siren_groupement as identifier
             keep_identifiers = {aom.n_siren_groupement for aom in aoms}
 
             # Find records to delete (those not in our keep list)
@@ -467,12 +476,13 @@ class GristDataService:
                 n_siren_groupement = fields.get("n_siren_groupement")
 
                 # If this record's identifier is not in our keep list, mark it for deletion
-                if (n_siren_groupement,) not in keep_identifiers:
+                if n_siren_groupement not in keep_identifiers:
                     rows_to_delete.append(record_id)
 
             # If there are rows to delete, send the delete request
             if rows_to_delete:
-                delete_url = f"{base}/tables/AomLabels/data/delete"
+                delete_url = f"{base}/tables/AomEligibility/data/delete"
+                logging.info(f"URL for delete_aom_tags (delete): {delete_url}")
                 response = requests.post(
                     delete_url, headers=self.headers, json=rows_to_delete
                 )
@@ -502,7 +512,8 @@ class GristDataService:
         """
         try:
             base = f"{self.base_url}/api/docs/{doc_id}"
-            url = f"{base}/tables/AomLabels/records"
+            url = f"{base}/tables/AomEligibility/records"
+            logging.info(f"URL for update_aom_tags: {url}")
 
             # Format the records for the API request
             records = []
@@ -520,6 +531,9 @@ class GristDataService:
                 records.append(record)
 
             payload = {"records": records}
+
+            # Log the payload for debugging
+            logging.info(f"Payload for update_aom_tags: {payload}")
 
             # Make the PUT request to update the records
             response = requests.put(url, headers=self.headers, json=payload)

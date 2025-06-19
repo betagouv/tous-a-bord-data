@@ -110,9 +110,11 @@ if "page_loaded" not in st.session_state:
     st.session_state.page_loaded = True
     on_page_load()
 
-st.set_page_config(page_title="Traitement Batch", layout="wide", page_icon="📦")
+st.set_page_config(
+    page_title="Tags extraction - batch", layout="wide", page_icon="📦"
+)
 
-st.header("📦 Traitement batch")
+st.header("📦 Tags extraction - batch")
 st.markdown(
     "Cette section permet de lancer un traitement batch pour plusieurs AOMs en utilisant les configurations définies ci-dessus."
 )
@@ -202,7 +204,7 @@ if st.button(
 
                 # Lancer le traitement
                 results = batch_processor.process_batch(
-                    aom_list=aoms[2:3], progress_callback=update_progress
+                    aom_list=aoms, progress_callback=update_progress
                 )
                 st.session_state.batch_results = results
 
@@ -254,9 +256,8 @@ if st.button(
                             type_de_contrat=aom_info.type_de_contrat
                             if aom_info
                             else None,
-                            labels=result.tags,
+                            criteres_eligibilite=result.tags,
                             fournisseurs=result.providers,
-                            status=result.status,
                         )
                         aoms_with_tags.append(aom_with_tags)
                 st.session_state["aoms_with_tags"] = aoms_with_tags
@@ -284,30 +285,29 @@ if st.session_state.batch_results:
     results_df = pd.DataFrame(results_data)
     st.dataframe(results_df)
 
-if len(st.session_state["aoms_with_tags"]) > 0:
+if st.session_state.aoms_with_tags:
+    st.subheader(
+        "✨ Jeu de données - Critères d'éligibilité aux tarifs sociaux et solidaires des transports"
+    )
     aoms_dict_list = []
     for aom in st.session_state["aoms_with_tags"]:
-        aom_dict = aom.dict()
-        # Ajouter l'emoji au statut
-        status_emoji = {"success": "✅", "error": "❌", "no_data": "⚠️"}.get(
-            aom_dict["status"], ""
-        )
-        # aom_dict["status"] = f"{status_emoji} {aom_dict['status']}"
+        aom_dict = aom.model_dump()
         aoms_dict_list.append(aom_dict)
     st.dataframe(pd.DataFrame(aoms_dict_list))
-    if st.button(
-        "📤 Mettre à jour les critères d'éligibilité aux tarifs sociaux et solidaires des transports dans Grist",
-        key="btn_update_aoms_with_tags",
-    ):
-        # Sauvegarder les résultats dans Grist
-        status_placeholder = st.empty()
-        progressbar_placeholder = st.empty()
-        success = asyncio.run(
-            save_to_grist(
-                st.session_state["aoms_with_tags"],
-                status_placeholder,
-                progressbar_placeholder,
-            )
-        )
-        if success:
-            status_placeholder.success("✅ Résultats sauvegardés dans Grist")
+    # TODO - fix this
+    # if st.button(
+    #     "📤 Mettre à jour les critères d'éligibilité aux tarifs sociaux et solidaires des transports dans Grist",
+    #     key="btn_update_aoms_with_tags",
+    # ):
+    #     # Sauvegarder les résultats dans Grist
+    #     status_placeholder = st.empty()
+    #     progressbar_placeholder = st.empty()
+    #     success = asyncio.run(
+    #         save_to_grist(
+    #             st.session_state["aoms_with_tags"],
+    #             status_placeholder,
+    #             progressbar_placeholder,
+    #         )
+    #     )
+    #     if success:
+    #         status_placeholder.success("✅ Résultats sauvegardés dans Grist")

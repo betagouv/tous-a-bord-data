@@ -28,8 +28,10 @@ from streamlit_tags import st_tags
 from utils.crawler_utils import CrawlerManager
 
 # Configuration de la page pour utiliser plus de largeur
-st.set_page_config(page_title="Extraction des tags", layout="wide")
-st.title("Extraction des tags")
+st.set_page_config(
+    page_title="Tags extraction - pipeline", layout="wide", page_icon="🏷️"
+)
+st.header("🏷️ Tags extraction - pipeline")
 load_dotenv()
 
 
