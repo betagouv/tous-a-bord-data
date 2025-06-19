@@ -44,4 +44,4 @@ EXPOSE 8501
 
 HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
 # --server.fileWatcherType=none fix spacy torch error
-ENTRYPOINT ["streamlit", "run", "🚎_Critères_d'éligibilité_par_AOM.py", "--server.port=8501", "--server.address=0.0.0.0"] 
+ENTRYPOINT ["streamlit", "run", "🚎_Tags extraction - output.py", "--server.port=8501", "--server.address=0.0.0.0"] 

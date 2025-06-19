@@ -1,11 +1,12 @@
+import asyncio
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List
 
-import pandas as pd
+from constants.keywords import DEFAULT_KEYWORDS
 from services.nlp_services import (
     extract_markdown_text,
     extract_tags_and_providers,
@@ -13,8 +14,8 @@ from services.nlp_services import (
     load_spacy_model,
     normalize_text,
 )
-from sqlalchemy import create_engine, text
-from utils.db_utils import get_postgres_cs
+from services.tsst_spacy_llm_task import TSSTClassifier
+from utils.crawler_utils import CrawlerManager
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -54,75 +55,18 @@ class BatchProcessor:
 
     def __init__(self, max_workers: int = 4):
         self.max_workers = max_workers
-        self.engine = create_engine(get_postgres_cs())
         self.nlp = None
         self._processing_status = (
             {}
         )  # Dict pour suivre le status de chaque AOM
         self._lock = threading.Lock()  # Pour thread-safety
+        self.keywords = DEFAULT_KEYWORDS.copy()  # Mots-clés pour le scraping
+        self.model_name = None  # Modèle LLM pour la classification TSST
 
     def initialize_nlp(self):
         """Initialise le modèle NLP une seule fois"""
         if self.nlp is None:
             self.nlp = load_spacy_model()
-
-    def get_all_aoms(self) -> List[Tuple[str, str, int]]:
-        """Récupère toutes les AOMs avec des données"""
-        with self.engine.connect() as conn:
-            aoms = conn.execute(
-                text(
-                    """
-                    SELECT DISTINCT
-                        t.n_siren_aom,
-                        a.nom_aom,
-                        COUNT(DISTINCT t.url_source) as nb_sources,
-                        STRING_AGG(DISTINCT t.url_source, ' | ') as sources
-                    FROM tarification_raw t
-                    LEFT JOIN aoms a ON t.n_siren_aom = a.n_siren_aom
-                    GROUP BY t.n_siren_aom, a.nom_aom
-                    ORDER BY COUNT(DISTINCT t.url_source) DESC, a.nom_aom
-                    """
-                )
-            ).fetchall()
-        return [(aom[0], aom[1], aom[2]) for aom in aoms]
-
-    def get_aom_content(self, siren: str) -> str:
-        """Récupère tout le contenu d'une AOM depuis la DB"""
-        with self.engine.connect() as conn:
-            # Récupérer toutes les sources pour cette AOM
-            sources = conn.execute(
-                text(
-                    """
-                    SELECT DISTINCT url_source
-                    FROM tarification_raw
-                    WHERE n_siren_aom = :siren
-                """
-                ),
-                {"siren": siren},
-            ).fetchall()
-
-            all_content = []
-            for source in sources:
-                # Récupérer toutes les pages pour cette source
-                pages = conn.execute(
-                    text(
-                        """
-                        SELECT url_page, contenu_scrape
-                        FROM tarification_raw
-                        WHERE n_siren_aom = :siren
-                        AND url_source = :url
-                        ORDER BY id
-                    """
-                    ),
-                    {"siren": siren, "url": source[0]},
-                ).fetchall()
-
-                for page in pages:
-                    all_content.append(
-                        f"--- Page: {page.url_page} ---\n{page.contenu_scrape}"
-                    )
-
-        return "\n\n".join(all_content)
 
     def count_tokens_simple(self, text: str) -> int:
         """Compte approximativement les tokens (méthode rapide)"""
@@ -157,6 +101,7 @@ class BatchProcessor:
         nom_aom: str,
         nb_sources: int,
         step_callback: Callable = None,
+        url: str = None,
     ) -> BatchResult:
         """Traite une seule AOM avec callbacks détaillés"""
         start_time = datetime.now()
@@ -170,9 +115,28 @@ class BatchProcessor:
             logger.info(f"Traitement de {siren} - {nom_aom}")
             update_step("Démarrage du traitement", 0.0)
 
-            # 1. Récupérer le contenu
-            update_step("Récupération du contenu depuis la DB", 0.1)
-            raw_content = self.get_aom_content(siren)
+            # 1. Récupérer le contenu via le crawler
+            update_step("Récupération du contenu via le crawler", 0.1)
+            raw_content = ""
+
+            if url:
+                try:
+                    # Utiliser le crawler pour récupérer le contenu
+                    crawler_manager = CrawlerManager()
+                    pages = asyncio.run(
+                        crawler_manager.fetch_content(url, self.keywords)
+                    )
+
+                    # Combiner le contenu de toutes les pages
+                    for page in pages:
+                        raw_content += (
+                            f"--- Page: {page.url} ---\n{page.markdown}\n\n"
+                        )
+                except Exception as e:
+                    logger.error(f"Erreur lors du crawling de {url}: {str(e)}")
+                    # Continuer avec un contenu vide
+            else:
+                logger.warning(f"Aucune URL fournie pour l'AOM {siren}")
             if not raw_content or not raw_content.strip():
                 update_step("Terminé - Aucun contenu", 1.0)
                 return BatchResult(
@@ -219,7 +183,41 @@ class BatchProcessor:
 
             nb_tokens_filtered = self.count_tokens_simple(filtered_content)
 
-            # 3. Extraction des tags et fournisseurs
+            # 3. Classification TSST avec LLM
+            if self.model_name:
+                update_step(f"Classification TSST avec {self.model_name}", 0.7)
+                try:
+                    # Initialiser le classifieur TSST avec le modèle spécifié
+                    classifier = TSSTClassifier(model_name=self.model_name)
+
+                    # Classifier le contenu
+                    is_tsst, details = classifier.classify_paragraph(
+                        filtered_content
+                    )
+
+                    # Si le contenu ne concerne pas la TSST, arrêter le traitement
+                    if not is_tsst:
+                        update_step("Terminé - Contenu non TSST", 1.0)
+                        return BatchResult(
+                            n_siren_aom=siren,
+                            nom_aom=nom_aom,
+                            status="no_data",
+                            error_message="Le contenu ne concerne pas la tarification sociale et solidaire des transports",
+                            processing_time=(
+                                datetime.now() - start_time
+                            ).total_seconds(),
+                            nb_tokens_original=nb_tokens_original,
+                            nb_tokens_filtered=nb_tokens_filtered,
+                            nb_sources=nb_sources,
+                            current_step="Terminé - Contenu non TSST",
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Erreur lors de la classification TSST: {str(e)}"
+                    )
+                    # Continuer même en cas d'erreur de classification
+
+            # 4. Extraction des tags et fournisseurs
             update_step("Extraction des tags et fournisseurs", 0.8)
             tags, providers, _, _ = extract_tags_and_providers(
                 filtered_content, self.nlp, siren, nom_aom
@@ -267,7 +265,7 @@ class BatchProcessor:
 
     def process_batch(
         self,
-        aom_list: Optional[List[Tuple[str, str, int]]] = None,
+        aom_list,
         progress_callback=None,
         step_callback=None,
     ) -> List[BatchResult]:
@@ -275,10 +273,6 @@ class BatchProcessor:
 
         # Initialiser le modèle NLP une seule fois
         self.initialize_nlp()
-
-        # Récupérer la liste des AOMs si non fournie
-        if aom_list is None:
-            aom_list = self.get_all_aoms()
 
         logger.info(f"Démarrage du traitement batch pour {len(aom_list)} AOMs")
 
@@ -291,16 +285,33 @@ class BatchProcessor:
         # Traitement en parallèle
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Soumettre tous les jobs
-            future_to_aom = {
-                executor.submit(
-                    self.process_single_aom,
-                    siren,
-                    nom_aom,
-                    nb_sources,
-                    step_callback,
-                ): (siren, nom_aom)
-                for siren, nom_aom, nb_sources in aom_list
-            }
+            future_to_aom = {}
+
+            for aom in aom_list:
+                # Extraire les informations de l'AOM
+                if hasattr(aom, "n_siren_aom") and hasattr(aom, "nom_aom"):
+                    # Si c'est un objet AomTransportOffer
+                    siren = str(aom.n_siren_aom)
+                    nom_aom = aom.nom_aom
+                    nb_sources = 1
+                    url = getattr(aom, "site_web_principal", None)
+                else:
+                    # Fallback pour d'autres formats
+                    siren = str(aom)
+                    nom_aom = f"AOM {aom}"
+                    nb_sources = 1
+                    url = None
+
+                future_to_aom[
+                    executor.submit(
+                        self.process_single_aom,
+                        siren,
+                        nom_aom,
+                        nb_sources,
+                        step_callback,
+                        url,
+                    )
+                ] = (siren, nom_aom)
 
             # Récupérer les résultats au fur et à mesure
             for i, future in enumerate(as_completed(future_to_aom)):
@@ -327,91 +338,3 @@ class BatchProcessor:
 
         logger.info(f"Traitement batch terminé: {len(results)} résultats")
         return results
-
-    def save_results_to_db(
-        self, results: List[BatchResult], table_name: str = "batch_results"
-    ):
-        """Sauvegarde les résultats en base de données"""
-        # Convertir en DataFrame
-        data = []
-        for result in results:
-            data.append(
-                {
-                    "n_siren_aom": result.n_siren_aom,
-                    "nom_aom": result.nom_aom,
-                    "status": result.status,
-                    "tags": ",".join(result.tags) if result.tags else None,
-                    "providers": ",".join(result.providers)
-                    if result.providers
-                    else None,
-                    "error_message": result.error_message,
-                    "processing_time": result.processing_time,
-                    "nb_tokens_original": result.nb_tokens_original,
-                    "nb_tokens_filtered": result.nb_tokens_filtered,
-                    "nb_sources": result.nb_sources,
-                    "current_step": result.current_step,
-                    "created_at": datetime.now(),
-                }
-            )
-
-        df = pd.DataFrame(data)
-
-        # Sauvegarder en base
-        df.to_sql(table_name, self.engine, if_exists="replace", index=False)
-        logger.info(f"Résultats sauvegardés dans la table {table_name}")
-
-    def get_summary_stats(self, results: List[BatchResult]) -> Dict:
-        """Génère des statistiques de synthèse"""
-        total = len(results)
-        success = len([r for r in results if r.status == "success"])
-        errors = len([r for r in results if r.status == "error"])
-        no_data = len([r for r in results if r.status == "no_data"])
-
-        # Temps de traitement
-        processing_times = [
-            r.processing_time for r in results if r.processing_time
-        ]
-        avg_processing_time = (
-            sum(processing_times) / len(processing_times)
-            if processing_times
-            else 0
-        )
-
-        # Tags les plus fréquents
-        all_tags = []
-        for r in results:
-            if r.tags:
-                all_tags.extend(r.tags)
-
-        tag_counts = {}
-        for tag in all_tags:
-            tag_counts[tag] = tag_counts.get(tag, 0) + 1
-
-        # Fournisseurs les plus fréquents
-        all_providers = []
-        for r in results:
-            if r.providers:
-                all_providers.extend(r.providers)
-
-        provider_counts = {}
-        for provider in all_providers:
-            provider_counts[provider] = provider_counts.get(provider, 0) + 1
-
-        return {
-            "total_aoms": total,
-            "success_count": success,
-            "error_count": errors,
-            "no_data_count": no_data,
-            "success_rate": (success / total * 100) if total > 0 else 0,
-            "avg_processing_time": avg_processing_time,
-            "total_tags_found": len(all_tags),
-            "unique_tags_count": len(tag_counts),
-            "most_common_tags": sorted(
-                tag_counts.items(), key=lambda x: x[1], reverse=True
-            )[:10],
-            "total_providers_found": len(all_providers),
-            "unique_providers_count": len(provider_counts),
-            "most_common_providers": sorted(
-                provider_counts.items(), key=lambda x: x[1], reverse=True
-            )[:10],
-        }
