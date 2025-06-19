@@ -1,12 +1,10 @@
 import asyncio
 import os
-import re
 from datetime import datetime
 from typing import Dict, List
 
 import nest_asyncio
 import streamlit as st
-from streamlit_tags import st_tags
 
 # Initialize the event loop before importing crawl4ai
 # flake8: noqa: E402
@@ -15,7 +13,6 @@ nest_asyncio.apply()
 import tiktoken
 from anthropic import Anthropic
 from constants.keywords import DEFAULT_KEYWORDS
-from constants.tag_dp_mapping import TAG_DP_MAPPING
 from dotenv import load_dotenv
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
@@ -81,12 +78,7 @@ client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 def select_model(model_name: str, prompt: str) -> str:
     """Select the model based on the model name"""
-    if "Ollama" in model_name:
-        current_chunk_text = call_ollama(
-            prompt,
-            model=LLM_MODELS[model_name]["name"],
-        )
-    elif "Anthropic" in model_name:
+    if "Anthropic" in model_name:
         current_chunk_text = call_anthropic(
             prompt, model=LLM_MODELS[model_name]["name"]
         )

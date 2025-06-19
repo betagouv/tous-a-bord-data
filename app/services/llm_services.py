@@ -1,10 +1,7 @@
 import os
 
-import ollama
-
 # import streamlit as st
 from anthropic import Anthropic
-from dotenv import load_dotenv
 from openai import OpenAI
 
 MAX_TOKEN_OUTPUT = 4000
@@ -54,23 +51,6 @@ LLM_MODELS = {
 def get_model_metadata(model_name: str, platform: str) -> dict:
     """Crée les métadonnées pour le tracking LangSmith"""
     return f"model: {model_name}, platform: {platform}"
-
-
-# OLLAMA with small models
-def ensure_ollama_host():
-    if "OLLAMA_HOST" not in os.environ:
-        load_dotenv()
-        ollama_host = os.getenv("OLLAMA_HOST")
-        if ollama_host:
-            os.environ["OLLAMA_HOST"] = ollama_host
-
-
-def call_ollama(prompt, model="llama3:8b"):
-    ensure_ollama_host()
-    response = ollama.chat(
-        model=model, messages=[{"role": "user", "content": prompt}]
-    )
-    return response["message"]["content"]
 
 
 # ANTHROPIC for an access to the best models
