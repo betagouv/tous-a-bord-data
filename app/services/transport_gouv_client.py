@@ -1,49 +1,43 @@
+import logging
+
 import requests
-from constants.urls import URL_DATASET_AOM, URL_TRANSPORT_GOUV_DATASETS
+from constants.urls import URL_DATASET_AOM
 
 
 def get_aom_dataset():
     url = URL_DATASET_AOM
-    response = requests.get(url)
-    data = response.json()
-    # Filtrer les ressources au format ODS
-    ods_resources = [
-        r
-        for r in data.get("resources", [])
-        if r.get("format", "").lower() == "ods"
-    ]
-    if not ods_resources:
-        return None
-    # Trier par date de mise à jour et prendre la plus récente
-    latest_resource = max(ods_resources, key=lambda x: x.get("updated", ""))
-    return latest_resource
-
-
-def filter_datasets_with_fares():
-    # Get data from the API
-    url = URL_TRANSPORT_GOUV_DATASETS
-    response = requests.get(url)
-    datasets = response.json()
-
-    # Filter datasets
-    filtered_datasets = []
-    for dataset in datasets:
-        if dataset.get("type") != "public-transit":
-            continue
-        # Loop through each dataset's resources
-        for resource in dataset.get("resources", []):
-            # Check if metadata and fares_rules_count exist
-            metadata = resource.get("metadata", {})
-            has_fares_rules = (
-                metadata
-                and metadata.get("stats", {}).get("fares_rules_count", 0) != 0
-            )
-            # Check if "tarifs" is in features
-            features = resource.get("features", [])
-            has_tarifs_feature = "tarifs" in features
-            if has_fares_rules or has_tarifs_feature:
-                filtered_datasets.append(dataset)
-                # Break once we find a matching resource
-                break
-
-    return filtered_datasets
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an exception for HTTP errors (4XX, 5XX)
+        data = response.json()
+        # Filtrer les ressources au format ODS
+        ods_resources = [
+            r
+            for r in data.get("resources", [])
+            if r.get("format", "").lower() == "ods"
+        ]
+        if not ods_resources:
+            return None
+        # Trier par date de mise à jour et prendre la plus récente
+        latest_resource = max(
+            ods_resources, key=lambda x: x.get("updated", "")
+        )
+        return latest_resource
+    except requests.exceptions.HTTPError as http_err:
+        logging.error(f"HTTP error occurred: {http_err}")
+        return {"error": f"HTTP error: {http_err}"}
+    except requests.exceptions.ConnectionError as conn_err:
+        logging.error(f"Connection error occurred: {conn_err}")
+        return {"error": f"Connection error: {conn_err}"}
+    except requests.exceptions.Timeout as timeout_err:
+        logging.error(f"Timeout error occurred: {timeout_err}")
+        return {"error": f"Timeout error: {timeout_err}"}
+    except requests.exceptions.RequestException as req_err:
+        logging.error(f"Request error occurred: {req_err}")
+        return {"error": f"Request error: {req_err}"}
+    except ValueError as json_err:
+        logging.error(f"JSON parsing error occurred: {json_err}")
+        return {"error": f"JSON parsing error: {json_err}"}
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
+        return {"error": f"Unexpected error: {e}"}

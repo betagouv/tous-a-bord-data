@@ -1,6 +1,12 @@
 import logging
 import sys
-from typing import List, Optional
+from typing import List
+
+import nest_asyncio
+
+# Initialize the event loop before importing crawl4ai
+# flake8: noqa: E402
+nest_asyncio.apply()
 
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
@@ -8,60 +14,23 @@ from crawl4ai.deep_crawling import DFSDeepCrawlStrategy
 from crawl4ai.deep_crawling.filters import FilterChain, URLPatternFilter
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
 
-
-class DebugDFSStrategy(DFSDeepCrawlStrategy):
-    """Strategy for DFS with detailed logging for debugging."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.logger = self._setup_logger()
-
-    def _setup_logger(self):
-        """Configure and return a logger for debugging."""
-        logger = logging.getLogger("link_discovery_debug")
-        logger.setLevel(logging.DEBUG)
-        # Avoid duplicate handlers
-        if not logger.handlers:
-            handler = logging.StreamHandler(sys.stdout)
-            formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-        return logger
-
-    async def link_discovery(
-        self, result, source_url, current_depth, visited, next_links, depths
-    ):
-        """Override the link discovery method with logging."""
-        self.logger.debug(
-            f"Link discovery for {source_url} at depth {current_depth}"
-        )
-        self.logger.debug(f"Already visited links: {visited}")
-        await super().link_discovery(
-            result, source_url, current_depth, visited, next_links, depths
-        )
-        self.logger.debug(f"After discovery - new links: {next_links}")
-        self.logger.debug("-------------------")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+)
+logger = logging.getLogger("crawler_manager")
 
 
 class CrawlerManager:
     """Crawler manager with initialization and reset."""
 
-    def __init__(self, on_crawler_reset=None):
-        self.crawler: Optional[AsyncWebCrawler] = None
-        self.on_crawler_reset = on_crawler_reset
-        self.logger = logging.getLogger("crawler_manager")
-
-    async def init_crawler(self) -> AsyncWebCrawler:
-        """Initialize the crawler if it doesn't already exist."""
-        if self.crawler is None:
-            browser_config = BrowserConfig(
-                browser_type="chromium", headless=True, verbose=True
-            )
-            self.crawler = AsyncWebCrawler(config=browser_config)
-            await self.crawler.start()
-        return self.crawler
+    def __init__(self):
+        # Configuration du navigateur
+        self.browser_config = BrowserConfig(
+            browser_type="chromium", headless=True, verbose=True
+        )
 
     def _get_exclude_patterns(self):
         """Return the list of URL patterns to exclude."""
@@ -74,9 +43,6 @@ class CrawlerManager:
             "*/contact*",
             "*/faq*",
             "*/a-propos*",
-            "*/me-deplacer*",
-            "*/se-deplacer*",
-            "*/reseau*",
             "*/plan-du-site*",
             "*/jegeremacartenavigo*",
             "*/actu*",
@@ -104,6 +70,9 @@ class CrawlerManager:
             "*/a-la-demande/*",
             "*/trotinette/*",
             "*/carte-interactive/*",
+            "*login*",
+            "*cookie*",
+            "*files*",
         ]
 
     def _should_exclude_url(self, url, patterns):
@@ -112,22 +81,25 @@ class CrawlerManager:
 
     async def fetch_content(self, url: str, keywords: List[str]):
         """Fetch the content of a URL with deep crawling."""
+        logger.info(f"Démarrage du crawling pour l'URL: {url}")
+
         exclude_patterns = self._get_exclude_patterns()
         # Check if the starting URL should be excluded
         if self._should_exclude_url(url, exclude_patterns):
-            self.logger.warning(f"Starting URL excluded by filters: {url}")
+            logger.warning(f"Starting URL excluded by filters: {url}")
             return None
+
         # Create the exclusion filter
         exclude_filter = URLPatternFilter(
             patterns=exclude_patterns,
             reverse=True,
         )
         # Create the keyword scorer
-        scorer = KeywordRelevanceScorer(keywords=keywords, weight=10000.0)
+        scorer = KeywordRelevanceScorer(keywords=keywords, weight=1000.0)
 
         scraping_strategy = DFSDeepCrawlStrategy(
-            max_depth=4,
-            max_pages=10,
+            max_depth=5,
+            max_pages=5,
             include_external=False,
             url_scorer=scorer,
             filter_chain=FilterChain([exclude_filter]),
@@ -141,10 +113,10 @@ class CrawlerManager:
             scan_full_page=True,
             wait_for_images=True,
             # Add delays to avoid detection
-            mean_delay=2.0,
+            mean_delay=1.0,
             # Additional pause (seconds) before final HTML is captured.
-            delay_before_return_html=5.0,
-            scroll_delay=2.0,
+            delay_before_return_html=1.0,
+            scroll_delay=1.0,
             # Simulate a user
             simulate_user=True,
             # Automatic handling of popups/consent banners. Experimental
@@ -159,13 +131,10 @@ class CrawlerManager:
         )
 
         try:
-            crawler = await self.init_crawler()
-            return await crawler.arun(url=url, config=run_config)
+            # Create a new crawler for each request
+            async with AsyncWebCrawler(config=self.browser_config) as crawler:
+                return await crawler.arun(url=url, config=run_config)
         except Exception as e:
-            self.logger.warning(f"Erreur lors du crawling: {str(e)}")
-            if self.crawler:
-                await self.crawler.stop()
-                self.crawler = None
-                if self.on_crawler_reset:
-                    self.on_crawler_reset()
-            raise
+            logger.error(f"Erreur lors du crawling: {str(e)}")
+            # Return an empty list instead of raising an exception
+            raise e

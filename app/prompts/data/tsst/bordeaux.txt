@@ -1,0 +1,41 @@
+Voici les informations tarifaires extraites:
+
+TARIFS STANDARDS:
+
+Tickets à l'unité:
+- Achat à bord du bus : 
+  * 1 voyage : 2,10€
+  * 2 voyages : 3,60€
+
+Abonnements mensuels:
+- Pass Pitchoun (5-10 ans) : 35€
+- Pass Jeune (11-27 ans) : 35,10€
+- Pass Classique (28-59 ans) : 52,80€  
+- Pass Senior (+60 ans) : tarif non précisé
+
+Abonnements annuels:
+- Pass Pitchoun : 146,40€/an (12,20€/mois)
+- Pass Jeune : 249,60€/an (20,80€/mois)
+- Pass Classique : 532,80€/an (44,40€/mois)
+- Pass Senior : 384€/an (32€/mois)
+- Pass Salarié : 426€/an (35,50€/mois)
+
+TARIFS RÉDUITS:
+- 10 voyages réduit : 8,40€ 
+- Profils éligibles : étudiant, famille nombreuse, militaire
+
+TARIFS SOLIDAIRES:
+Conditions d'éligibilité : 
+- Quotient familial ≤ 970€
+- 4 tranches selon le quotient familial
+
+Exemples tarifs solidaires mensuels :
+- Pass Pitchoun Solidaire 2 : 8,90€
+- Pass Jeune Solidaire 2 : 17,60€
+- Pass Classique Solidaire 2 : 26,40€
+- Pass Senior Solidaire 2 : 20,10€
+
+ZONES GÉOGRAPHIQUES:
+- Bordeaux Métropole (28 communes)
+- Réseau TBM (Tramway, Bus, Bato)
+- Cars régionaux inclus dans le périmètre

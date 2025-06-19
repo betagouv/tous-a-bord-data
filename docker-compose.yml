@@ -11,43 +11,23 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - GRIST_API_KEY=${GRIST_API_KEY}
+      - GRIST_DOC_INPUT_ID=${GRIST_DOC_INPUT_ID}
+      - GRIST_DOC_INTERMEDIARY_ID=${GRIST_DOC_INTERMEDIARY_ID}
+      - GRIST_DOC_OUTPUT_ID=${GRIST_DOC_OUTPUT_ID}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OLLAMA_HOST=${OLLAMA_HOST}
       - SCALEWAY_API_URL=${SCALEWAY_API_URL}
       - SCALEWAY_API_KEY=${SCALEWAY_API_KEY}
       - STREAMLIT_SERVER_RUN_ON_SAVE=true
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT}
+      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT}
     volumes:
       - ./app:/app
     networks:
       - app-network
     restart: unless-stopped
-
-  postgres:
-    image: ankane/pgvector:latest
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - app-network
-    restart: unless-stopped
-
-volumes:
-  postgres-data:
-    name: tab-postgres-data
 
 networks:
   app-network:

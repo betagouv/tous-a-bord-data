@@ -51,4 +51,10 @@ ENTITES = [
     "RSA",
     "SEGPA",
     "SMIC",
+    "France Travail",
+    "Pôle Emploi",
+    "france travail",
+    "Pôle emploi",
+    "pôle emploi",
+    "QF1",
 ]
