@@ -6,7 +6,6 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     build-essential \
-    chromium \
     libgconf-2-4 \
     libxss1 \
     libnss3 \
@@ -26,23 +25,19 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-# Installation des dépendances Python
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Installation de Crawl4AI et configuration automatique
-RUN pip install --no-cache-dir "crawl4ai>=0.5.0,<0.6.0rc1"
-RUN crawl4ai-setup
-
-
-# Installation de spaCy et du modèle français
-RUN python -m spacy download fr_core_news_lg
-
+RUN crawl4ai-setup && apt-get remove -y gcc g++ build-essential \
+ && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/* \
+ && python -m spacy download fr_core_news_sm
+ 
 COPY . .
 
-# Expose the port that will be used by Streamlit
-EXPOSE ${PORT:-8501}
+EXPOSE ${PORT:-8502}
 
-HEALTHCHECK CMD curl --fail http://localhost:${PORT:-8501}/_stcore/health
+HEALTHCHECK CMD curl --fail http://localhost:${PORT:-8502}/_stcore/health
 
-ENTRYPOINT ["sh", "-c", "streamlit run main.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]
+ENTRYPOINT ["sh", "-c", "streamlit run main.py --server.port=${PORT:-8502} --server.address=0.0.0.0"]

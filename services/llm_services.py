@@ -1,7 +1,6 @@
 import os
 
 # import streamlit as st
-from anthropic import Anthropic
 from openai import OpenAI
 
 MAX_TOKEN_OUTPUT = 4000
@@ -32,60 +31,12 @@ LLM_MODELS = {
         "name": "deepseek-r1-distill-llama-70b",
         "max_tokens": 32000,
     },
-    "Claude 3 Haiku (Anthropic)": {
-        "name": "claude-3-5-haiku-latest",
-        "max_tokens": 100000,
-    },
-    # too expansive
-    "Claude 3 Sonnet (Anthropic)": {
-        "name": "claude-3-5-sonnet-latest",
-        "max_tokens": 200000,
-    },
-    "Claude 4 Sonnet (Anthropic)": {
-        "name": "claude-sonnet-4-20250514",
-        "max_tokens": 200000,
-    },
 }
 
 
 def get_model_metadata(model_name: str, platform: str) -> dict:
     """Crée les métadonnées pour le tracking LangSmith"""
     return f"model: {model_name}, platform: {platform}"
-
-
-# ANTHROPIC for an access to the best models
-class AnthropicWrapper:
-    _instance = None
-    _client = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(AnthropicWrapper, cls).__new__(cls)
-            # Création du client une seule fois
-            cls._client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        return cls._instance
-
-    def stream_anthropic(self, **kwargs):
-        """
-        Lance un stream avec le client singleton.
-        kwargs : tous les arguments attendus par client.messages.create
-        """
-        return self._client.messages.create(**kwargs)
-
-
-def call_anthropic(prompt, model):
-    client = AnthropicWrapper()
-    stream = client.stream_anthropic(
-        model=model,
-        max_tokens=MAX_TOKEN_OUTPUT,  # max tokens for output
-        messages=[{"role": "user", "content": prompt}],
-        stream=True,
-    )
-    current_chunk_text = ""
-    for event in stream:
-        if event.type == "content_block_delta":
-            current_chunk_text += event.delta.text
-    return current_chunk_text
 
 
 # TODO: add openai client for scaleways models
