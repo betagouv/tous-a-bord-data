@@ -53,9 +53,10 @@ class ProcessingStatus:
 class BatchProcessor:
     """Service de traitement batch pour toutes les AOMs"""
 
-    def __init__(self, max_workers: int = 4):
+    def __init__(self, crawler_event_loop, max_workers: int = 4):
         self.max_workers = max_workers
         self.nlp = None
+        self.crawler_event_loop = crawler_event_loop
         self._processing_status = (
             {}
         )  # Dict pour suivre le status de chaque AOM
@@ -123,7 +124,9 @@ class BatchProcessor:
                 try:
                     # Utiliser le crawler pour récupérer le contenu
                     crawler_manager = CrawlerManager()
-                    pages = asyncio.run(
+                    loop = self.crawler_event_loop
+                    asyncio.set_event_loop(loop)
+                    pages = loop.run_until_complete(
                         crawler_manager.fetch_content(url, self.keywords)
                     )
 

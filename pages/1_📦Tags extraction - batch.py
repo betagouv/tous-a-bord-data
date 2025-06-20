@@ -37,11 +37,6 @@ def on_page_load():
     logging.info("Page 'Tags extraction - batch' chargée et initialisée")
 
 
-def reset_crawlers():
-    logging.info("reset_crawlers")
-    os._exit(0)
-
-
 def change_config():
     st.session_state.batch_config = {
         "keywords": st.session_state.selected_keywords,
@@ -119,12 +114,6 @@ st.header("📦 Tags extraction - batch")
 st.markdown(
     "Cette section permet de lancer un traitement batch pour plusieurs AOMs en utilisant les configurations définies ci-dessus."
 )
-st.markdown("Avant tout traitement batch, penser à **reset les crawlers** 👇")
-
-if st.button(
-    "♻️ Reset les crawlers", type="secondary", use_container_width=True
-):
-    reset_crawlers()
 
 if "batch_processing_active" not in st.session_state:
     st.session_state.batch_processing_active = False
@@ -177,6 +166,11 @@ selected_model_name = st.selectbox(
 
 aoms = asyncio.run(get_aom_transport_offers())
 
+# init crawler event loop
+if "loop" not in st.session_state:
+    st.session_state.loop = asyncio.new_event_loop()
+
+
 if st.button(
     "🚀 Lancer le traitement batch", type="primary", use_container_width=True
 ):
@@ -190,7 +184,7 @@ if st.button(
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        batch_processor = BatchProcessor(max_workers=4)
+        batch_processor = BatchProcessor(st.session_state.loop, max_workers=4)
 
         # Lancer le traitement batch
         with st.spinner("Traitement batch en cours..."):

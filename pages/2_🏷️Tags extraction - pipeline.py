@@ -31,6 +31,20 @@ from utils.crawler_utils import CrawlerManager
 load_dotenv()
 
 
+async def get_aom_transport_offers():
+    try:
+        # Get GristDataService instance
+        grist_service = GristDataService.get_instance(
+            api_key=os.getenv("GRIST_API_KEY")
+        )
+        doc_id = os.getenv("GRIST_DOC_INTERMEDIARY_ID")
+        aoms = await grist_service.get_aom_transport_offers(doc_id)
+        return aoms
+    except Exception as e:
+        st.error(f"Erreur lors de la connexion à Grist : {str(e)}")
+        return []
+
+
 @traceable
 def extract_content(url_source, keywords):
     """
@@ -46,15 +60,13 @@ def extract_content(url_source, keywords):
     run = get_current_run_tree()
     st.session_state.run_ids["scraping"] = run.id
     try:
-        # Run the crawler and get the results with a timeout
-        # crawler_manager = CrawlerManager()
-        # pages = asyncio.run(
-        #     crawler_manager.fetch_content(url_source, keywords)
-        # )
+        # WARNING: when launch a crawler in streamlit
+        # we need a single event loop
         loop = st.session_state.loop
         asyncio.set_event_loop(loop)
+        crawler_manager = CrawlerManager()
         pages = loop.run_until_complete(
-            st.session_state.crawler_manager.fetch_content(
+            crawler_manager.fetch_content(
                 url_source,
                 keywords,
             )
@@ -252,24 +264,9 @@ st.subheader("Sélection de l'AOM")
 if "run_ids" not in st.session_state:
     st.session_state.run_ids = {}
 
-# init crawler
-if "crawler_manager" not in st.session_state:
-    st.session_state.crawler_manager = CrawlerManager()
+# init crawler event loop
+if "loop" not in st.session_state:
     st.session_state.loop = asyncio.new_event_loop()
-
-
-async def get_aom_transport_offers():
-    try:
-        # Get GristDataService instance
-        grist_service = GristDataService.get_instance(
-            api_key=os.getenv("GRIST_API_KEY")
-        )
-        doc_id = os.getenv("GRIST_DOC_INTERMEDIARY_ID")
-        aoms = await grist_service.get_aom_transport_offers(doc_id)
-        return aoms
-    except Exception as e:
-        st.error(f"Erreur lors de la connexion à Grist : {str(e)}")
-        return []
 
 
 aoms = asyncio.run(get_aom_transport_offers())
