@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Dict, List
@@ -53,7 +52,7 @@ class ProcessingStatus:
 class BatchProcessor:
     """Service de traitement batch pour toutes les AOMs"""
 
-    def __init__(self, crawler_event_loop, max_workers: int = 4):
+    def __init__(self, crawler_event_loop, max_workers: int = 1):
         self.max_workers = max_workers
         self.nlp = None
         self.crawler_event_loop = crawler_event_loop
@@ -63,6 +62,8 @@ class BatchProcessor:
         self._lock = threading.Lock()  # Pour thread-safety
         self.keywords = DEFAULT_KEYWORDS.copy()  # Mots-clés pour le scraping
         self.model_name = None  # Modèle LLM pour la classification TSST
+        # Créer une seule instance de CrawlerManager partagée
+        self.crawler_manager = CrawlerManager()
 
     def initialize_nlp(self):
         """Initialise le modèle NLP une seule fois"""
@@ -122,12 +123,11 @@ class BatchProcessor:
 
             if url:
                 try:
-                    # Utiliser le crawler pour récupérer le contenu
-                    crawler_manager = CrawlerManager()
+                    # Utiliser le crawler partagé pour récupérer le contenu
                     loop = self.crawler_event_loop
                     asyncio.set_event_loop(loop)
                     pages = loop.run_until_complete(
-                        crawler_manager.fetch_content(url, self.keywords)
+                        self.crawler_manager.fetch_content(url, self.keywords)
                     )
 
                     # Combiner le contenu de toutes les pages
@@ -272,7 +272,7 @@ class BatchProcessor:
         progress_callback=None,
         step_callback=None,
     ) -> List[BatchResult]:
-        """Traite un batch d'AOMs en parallèle"""
+        """Traite un batch d'AOMs de manière séquentielle"""
 
         # Initialiser le modèle NLP une seule fois
         self.initialize_nlp()
@@ -285,59 +285,49 @@ class BatchProcessor:
 
         results = []
 
-        # Traitement en parallèle
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Soumettre tous les jobs
-            future_to_aom = {}
+        # Traitement séquentiel (une AOM à la fois)
+        for i, aom in enumerate(aom_list):
+            # Extraire les informations de l'AOM
+            if hasattr(aom, "n_siren_aom") and hasattr(aom, "nom_aom"):
+                # Si c'est un objet AomTransportOffer
+                siren = str(aom.n_siren_aom)
+                nom_aom = aom.nom_aom
+                nb_sources = 1
+                url = getattr(aom, "site_web_principal", None)
+            else:
+                # Fallback pour d'autres formats
+                siren = str(aom)
+                nom_aom = f"AOM {aom}"
+                nb_sources = 1
+                url = None
 
-            for aom in aom_list:
-                # Extraire les informations de l'AOM
-                if hasattr(aom, "n_siren_aom") and hasattr(aom, "nom_aom"):
-                    # Si c'est un objet AomTransportOffer
-                    siren = str(aom.n_siren_aom)
-                    nom_aom = aom.nom_aom
-                    nb_sources = 1
-                    url = getattr(aom, "site_web_principal", None)
-                else:
-                    # Fallback pour d'autres formats
-                    siren = str(aom)
-                    nom_aom = f"AOM {aom}"
-                    nb_sources = 1
-                    url = None
+            try:
+                # Traiter cette AOM
+                result = self.process_single_aom(
+                    siren, nom_aom, nb_sources, step_callback, url
+                )
+                results.append(result)
 
-                future_to_aom[
-                    executor.submit(
-                        self.process_single_aom,
-                        siren,
-                        nom_aom,
-                        nb_sources,
-                        step_callback,
-                        url,
+                # Callback pour mettre à jour la progress bar
+                if progress_callback:
+                    progress_callback(i + 1, len(aom_list), result)
+
+                # Petit délai entre les traitements pour laisser l'event loop "respirer"
+                import time
+
+                time.sleep(0.5)
+
+            except Exception as e:
+                logger.error(f"Erreur inattendue pour {siren}: {str(e)}")
+                results.append(
+                    BatchResult(
+                        n_siren_aom=siren,
+                        nom_aom=nom_aom,
+                        status="error",
+                        error_message=f"Erreur inattendue: {str(e)}",
+                        current_step="Erreur inattendue",
                     )
-                ] = (siren, nom_aom)
-
-            # Récupérer les résultats au fur et à mesure
-            for i, future in enumerate(as_completed(future_to_aom)):
-                try:
-                    result = future.result()
-                    results.append(result)
-
-                    # Callback pour mettre à jour la progress bar
-                    if progress_callback:
-                        progress_callback(i + 1, len(aom_list), result)
-
-                except Exception as e:
-                    siren, nom_aom = future_to_aom[future]
-                    logger.error(f"Erreur inattendue pour {siren}: {str(e)}")
-                    results.append(
-                        BatchResult(
-                            n_siren_aom=siren,
-                            nom_aom=nom_aom,
-                            status="error",
-                            error_message=f"Erreur inattendue: {str(e)}",
-                            current_step="Erreur inattendue",
-                        )
-                    )
+                )
 
         logger.info(f"Traitement batch terminé: {len(results)} résultats")
         return results

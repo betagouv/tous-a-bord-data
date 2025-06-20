@@ -2,8 +2,13 @@ import asyncio
 import logging
 import os
 
+import nest_asyncio
 import pandas as pd
 import streamlit as st
+
+# Initialize the event loop before importing crawl4ai
+# flake8: noqa: E402
+nest_asyncio.apply()
 
 from constants.keywords import DEFAULT_KEYWORDS
 from models.grist_models import AomTags
@@ -106,6 +111,7 @@ if "page_loaded" not in st.session_state:
     st.session_state.page_loaded = True
     on_page_load()
 
+
 st.set_page_config(
     page_title="Tags extraction - batch", layout="wide", page_icon="📦"
 )
@@ -170,7 +176,6 @@ aoms = asyncio.run(get_aom_transport_offers())
 if "loop" not in st.session_state:
     st.session_state.loop = asyncio.new_event_loop()
 
-
 if st.button(
     "🚀 Lancer le traitement batch", type="primary", use_container_width=True
 ):
@@ -183,8 +188,9 @@ if st.button(
     with progress_container:
         progress_bar = st.progress(0)
         status_text = st.empty()
-
-        batch_processor = BatchProcessor(st.session_state.loop, max_workers=4)
+        # init crawler event loop
+        loop = st.session_state.loop
+        batch_processor = BatchProcessor(loop, max_workers=1)
 
         # Lancer le traitement batch
         with st.spinner("Traitement batch en cours..."):

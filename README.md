@@ -49,7 +49,7 @@ cp .env.example .env
 ### Installer les outils de développement :
 
 ```bash
-python -m pip install --no-user -r requirements-dev.txt
+pip install -r requirements-dev.txt
 ```
 
 

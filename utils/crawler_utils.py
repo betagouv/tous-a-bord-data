@@ -99,8 +99,8 @@ class CrawlerManager:
         scorer = KeywordRelevanceScorer(keywords=keywords, weight=1000.0)
 
         scraping_strategy = DFSDeepCrawlStrategy(
-            max_depth=2,
-            max_pages=2,
+            max_depth=4,
+            max_pages=10,
             include_external=False,
             url_scorer=scorer,
             filter_chain=FilterChain([exclude_filter]),
@@ -114,9 +114,9 @@ class CrawlerManager:
             scan_full_page=True,
             wait_for_images=True,
             # Add delays to avoid detection
-            mean_delay=1.0,
+            mean_delay=2.0,
             # Additional pause (seconds) before final HTML is captured.
-            delay_before_return_html=1.0,
+            delay_before_return_html=5.0,
             scroll_delay=1.0,
             # Simulate a user
             simulate_user=True,

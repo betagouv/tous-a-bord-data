@@ -67,10 +67,13 @@ filtered_df = filter_dataframe(st.session_state.aoms_data, search_term)
 
 # Display the number of results
 nb_results = len(filtered_df)
-first = f"{nb_results} result{'s' if nb_results > 1 else ''}"
-second = f"found{'s' if nb_results > 1 else ''}"
-
-st.write(f"📊{first} {second}")
+population = sum(filtered_df["population_aom"])
+first = f"**{nb_results} AOM{'s' if nb_results > 1 else ''}**"
+second = f"trouvée{'s' if nb_results > 1 else ''}"
+taux_population = population * 100 / 66647129
+st.write(
+    f"📊{first} {second}, soit " f"**{taux_population:.2f}% de la population**"
+)
 
 # Display the filtered table
 st.dataframe(

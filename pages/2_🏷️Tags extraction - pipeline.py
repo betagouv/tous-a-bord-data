@@ -64,7 +64,10 @@ def extract_content(url_source, keywords):
         # we need a single event loop
         loop = st.session_state.loop
         asyncio.set_event_loop(loop)
+
+        # Réutiliser la même instance de CrawlerManager
         crawler_manager = CrawlerManager()
+
         pages = loop.run_until_complete(
             crawler_manager.fetch_content(
                 url_source,
