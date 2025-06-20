@@ -28,11 +28,6 @@ from services.llm_services import LLM_MODELS
 from services.tsst_spacy_llm_task import TSSTClassifier
 from utils.crawler_utils import CrawlerManager
 
-# Configuration de la page pour utiliser plus de largeur
-st.set_page_config(
-    page_title="Tags extraction - pipeline", layout="wide", page_icon="🏷️"
-)
-st.header("🏷️ Tags extraction - pipeline")
 load_dotenv()
 
 
@@ -52,10 +47,17 @@ def extract_content(url_source, keywords):
     st.session_state.run_ids["scraping"] = run.id
     try:
         # Run the crawler and get the results with a timeout
-        crawler_manager = CrawlerManager()
-        # Use asyncio.run() to create a new event loop for each request
-        pages = asyncio.run(
-            crawler_manager.fetch_content(url_source, keywords)
+        # crawler_manager = CrawlerManager()
+        # pages = asyncio.run(
+        #     crawler_manager.fetch_content(url_source, keywords)
+        # )
+        loop = st.session_state.loop
+        asyncio.set_event_loop(loop)
+        pages = loop.run_until_complete(
+            st.session_state.crawler_manager.fetch_content(
+                url_source,
+                keywords,
+            )
         )
         return pages
     except Exception as e:
@@ -67,11 +69,6 @@ def count_tokens(text: str) -> int:
     """Compte le nombre de tokens dans un texte (version générale)"""
     # Utiliser cl100k comme tokenizer général
     return len(tiktoken.encoding_for_model("gpt-3.5-turbo").encode(text))
-
-
-# Initialiser le dictionnaire des run_ids s'il n'existe pas
-if "run_ids" not in st.session_state:
-    st.session_state.run_ids = {}
 
 
 @traceable
@@ -244,8 +241,21 @@ def show_evaluation_interface(step_name: str) -> None:
                 st.error("❌ Erreur lors de la sauvegarde")
 
 
-# Interface Streamlit
+# UI
+st.set_page_config(
+    page_title="Tags extraction - pipeline", layout="wide", page_icon="🏷️"
+)
+st.header("🏷️ Tags extraction - pipeline")
 st.subheader("Sélection de l'AOM")
+
+# init run_ids for evaluation
+if "run_ids" not in st.session_state:
+    st.session_state.run_ids = {}
+
+# init crawler
+if "crawler_manager" not in st.session_state:
+    st.session_state.crawler_manager = CrawlerManager()
+    st.session_state.loop = asyncio.new_event_loop()
 
 
 async def get_aom_transport_offers():
@@ -276,7 +286,6 @@ selected_aom = st.selectbox(
     key="selected_aom",
     on_change=lambda: (
         # Nettoyer toutes les données de session quand on change d'AOM
-        os._exit(0),
         st.session_state.pop("raw_scraped_content", None),
         st.session_state.pop("scraped_content", None),
         st.session_state.pop("filtered_contents", None),
