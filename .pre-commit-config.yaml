@@ -27,7 +27,7 @@ repos:
       - id: pytest-local
         name: Run all tests locally
         entry: bash
-        args: ['-c', 'source tab/bin/activate && pytest tests/ -v']
+        args: ['-c', 'pytest tests/ -v']
         language: system
         pass_filenames: false
         always_run: true

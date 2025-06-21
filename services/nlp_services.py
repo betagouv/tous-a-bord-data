@@ -14,21 +14,21 @@ from constants.tokens_eligibilite import TOKENS_ELIGIBILITE
 TOKENS_ELIGIBILITE = [token.lower() for token in TOKENS_ELIGIBILITE]
 
 
-# Load the fr_core_news_lg model
+# Load the fr_core_news_md model (lightest French model)
 @st.cache_resource
 def load_spacy_model():
-    """Charge le modèle SpaCy de base"""
+    """Charge le modèle SpaCy de base (version légère)"""
     try:
-        nlp = spacy.load("fr_core_news_lg")
+        nlp = spacy.load("fr_core_news_md")
         return nlp
     except OSError:
         st.error("Installation en cours...")
         import subprocess
 
         subprocess.run(
-            ["python", "-m", "spacy", "download", "fr_core_news_lg"]
+            ["python", "-m", "spacy", "download", "fr_core_news_md"]
         )
-        return spacy.load("fr_core_news_lg")
+        return spacy.load("fr_core_news_md")
 
 
 @st.cache_data
