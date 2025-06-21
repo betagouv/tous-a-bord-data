@@ -97,7 +97,7 @@ cz commit
 2. Installez les dépendances :
    ```bash
    pip install -r requirements.txt
-   venv/bin/python -m spacy download fr_core_news_sm
+   venv/bin/python -m spacy download fr_core_news_md
    ```
 
 3. Lancez l'application Streamlit :
@@ -125,7 +125,28 @@ cz commit
 
 4. Pour arrêter le conteneur, utilisez `Ctrl+C` ou trouvez l'ID du conteneur avec `docker ps` puis exécutez `docker stop <container_id>`
 
-## Étapes de configuration Langsmith
+## Tests Unitaires
+
+1. Option 1 : lancer les tests ponctuellement
+   ```bash
+   pytest tests/ -v
+   ```
+
+2. Option 2 : tests lancés au fur et à mesure du développement
+   ```bash
+   pytest-watch tests/ -v
+   ```
+
+3. Option 3 : lancer les tests au moment du commit
+   Pre-commit est déjà configuré por bloquer le commit si les
+   tests ne passent plus
+
+## Configuration de Langsmith
+
+### Tracking automatique
+- Tous les appels LLM sont automatiquement trackés
+- Les prompts, réponses, et métadonnées sont sauvegardés
+- Les erreurs et temps d'exécution sont enregistrés
 
 ### 1. Créer un compte LangSmith
 
@@ -138,17 +159,3 @@ cz commit
 1. Dans LangSmith, allez dans Settings > API Keys
 2. Créez une nouvelle clé API
 3. Copiez la clé et ajoutez-la à votre `.env` comme `LANGCHAIN_API_KEY`
-
-### 3. Vérifier la configuration
-
-Une fois configuré, vous devriez voir :
-- ✅ Connecté à LangSmith dans la sidebar de la page "📊 Évaluation HITL"
-- Les runs LLM apparaître automatiquement dans LangSmith
-- La possibilité de créer des feedbacks depuis l'interface Streamlit
-
-## Fonctionnalités activées
-
-### Tracking automatique
-- Tous les appels LLM sont automatiquement trackés
-- Les prompts, réponses, et métadonnées sont sauvegardés
-- Les erreurs et temps d'exécution sont enregistrés

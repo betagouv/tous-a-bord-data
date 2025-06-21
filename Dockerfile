@@ -5,25 +5,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
-    build-essential \
-    libgconf-2-4 \
-    libxss1 \
-    libnss3 \
-    libnspr4 \
-    libasound2 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    xvfb \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential
 
 COPY requirements.txt .
 
@@ -32,8 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN crawl4ai-setup && apt-get remove -y gcc g++ build-essential \
  && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/* \
- && python -m spacy download fr_core_news_sm
- 
+ && python -m spacy download fr_core_news_md
+
 COPY . .
 
 EXPOSE ${PORT:-8502}
