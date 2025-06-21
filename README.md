@@ -159,3 +159,24 @@ cz commit
 1. Dans LangSmith, allez dans Settings > API Keys
 2. Créez une nouvelle clé API
 3. Copiez la clé et ajoutez-la à votre `.env` comme `LANGCHAIN_API_KEY`
+
+## Deploy
+Avec spacy et crawl4ai, le docker image dépasse la limite de scalingo (1.5 GB).
+Fly.io permet de déployer des image docker de plus de 3GB sur un serveur FR.
+
+1. Install fly cli
+   ```bash
+   curl -L https://fly.io/install.sh | sh
+   ```
+
+2. Se créer un compte https://fly.io/
+
+3. Créer une application sur un serveur en France (suivre les instructions du cli)
+   ```bash
+   fly launch --region cdg
+   ```
+
+4. Déployer
+   ```bash
+   fly deploy
+   ```
