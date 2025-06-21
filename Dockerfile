@@ -18,8 +18,8 @@ RUN crawl4ai-setup && apt-get remove -y gcc g++ build-essential \
 
 COPY . .
 
-EXPOSE ${PORT:-8502}
+EXPOSE ${PORT:-8501}
 
-HEALTHCHECK CMD curl --fail http://localhost:${PORT:-8502}/_stcore/health
+HEALTHCHECK CMD curl --fail http://localhost:${PORT:-8501}/_stcore/health
 
-ENTRYPOINT ["sh", "-c", "streamlit run main.py --server.port=${PORT:-8502} --server.address=0.0.0.0"]
+ENTRYPOINT ["sh", "-c", "streamlit run main.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]
