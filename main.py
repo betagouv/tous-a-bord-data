@@ -67,10 +67,29 @@ filtered_df = filter_dataframe(st.session_state.aoms_data, search_term)
 
 # Display the number of results
 nb_results = len(filtered_df)
-population = sum(filtered_df["population_aom"])
+
+# Safely calculate population
+try:
+    # Check if filtered_df is a DataFrame and has the population_aom column
+    if (
+        isinstance(filtered_df, pd.DataFrame)
+        and "population_aom" in filtered_df.columns
+    ):
+        # Filter out None values and convert to numeric
+        population_values = pd.to_numeric(
+            filtered_df["population_aom"].dropna(), errors="coerce"
+        )
+        population = population_values.sum()
+    else:
+        # If filtered_df is not a DataFrame or doesn't have the column, set population to 0
+        population = 0
+except Exception as e:
+    st.warning(f"Erreur lors du calcul de la population: {str(e)}")
+    population = 0
+
 first = f"**{nb_results} AOM{'s' if nb_results > 1 else ''}**"
 second = f"trouvée{'s' if nb_results > 1 else ''}"
-taux_population = population * 100 / 66647129
+taux_population = population * 100 / 66647129 if population > 0 else 0
 st.write(
     f"📊{first} {second}, soit " f"**{taux_population:.2f}% de la population**"
 )

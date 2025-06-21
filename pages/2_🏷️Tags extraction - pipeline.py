@@ -19,12 +19,16 @@ from streamlit_tags import st_tags
 
 from constants.keywords import DEFAULT_KEYWORDS
 from services.evaluation_service import evaluation_service
-
-# Import pour l'évaluation HITL
 from services.grist_service import GristDataService
 from services.llm_services import LLM_MODELS
-
-# Import pour la classification TSST
+from services.nlp_services import (
+    create_transport_fare_matcher,
+    extract_markdown_text,
+    extract_tags_and_providers,
+    filter_transport_fare,
+    load_spacy_model,
+    normalize_text,
+)
 from services.tsst_spacy_llm_task import TSSTClassifier
 from utils.crawler_utils import CrawlerManager
 
@@ -94,12 +98,6 @@ def filter_nlp(
     try:
         run = get_current_run_tree()
         st.session_state.run_ids["filter"] = run.id
-        from services.nlp_services import (
-            extract_markdown_text,
-            filter_transport_fare,
-            load_spacy_model,
-            normalize_text,
-        )
 
         with st.spinner("Analyse automatique du langage naturel..."):
             nlp = load_spacy_model()
@@ -124,11 +122,6 @@ def check_transport_fare_content(text: str) -> tuple[bool, list]:
         tuple: (has_fares, fare_matches) où has_fares est un booléen indiquant si des tarifs ont été trouvés
                et fare_matches est une liste des correspondances avec leur contexte
     """
-    from services.nlp_services import (
-        create_transport_fare_matcher,
-        load_spacy_model,
-    )
-
     nlp = load_spacy_model()
     doc = nlp(text)
 
@@ -185,10 +178,6 @@ def format_tags_and_providers(
     """Extrait les tags ET les fournisseurs en une seule fois optimisée"""
     run = get_current_run_tree()
     st.session_state.run_ids["format_tags_and_providers"] = run.id
-    from services.nlp_services import (
-        extract_tags_and_providers,
-        load_spacy_model,
-    )
 
     nlp = load_spacy_model()
 
