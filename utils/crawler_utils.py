@@ -1,12 +1,6 @@
 import logging
 import sys
-from typing import List
-
-import nest_asyncio
-
-# Initialize the event loop before importing crawl4ai
-# flake8: noqa: E402
-nest_asyncio.apply()
+from typing import List, Optional
 
 from crawl4ai import AsyncWebCrawler
 from crawl4ai.async_configs import BrowserConfig, CrawlerRunConfig
@@ -27,10 +21,17 @@ class CrawlerManager:
     """Crawler manager with initialization and reset."""
 
     def __init__(self):
-        # Configuration du navigateur
-        self.browser_config = BrowserConfig(
-            browser_type="chromium", headless=True, verbose=True
-        )
+        self.crawler: Optional[AsyncWebCrawler] = None
+
+    async def init_crawler(self) -> AsyncWebCrawler:
+        """Initialize the crawler if it doesn't already exist."""
+        if self.crawler is None:
+            browser_config = BrowserConfig(
+                browser_type="chromium", headless=True, verbose=True
+            )
+            self.crawler = AsyncWebCrawler(config=browser_config)
+            await self.crawler.start()
+        return self.crawler
 
     def _get_exclude_patterns(self):
         """Return the list of URL patterns to exclude."""
@@ -81,7 +82,7 @@ class CrawlerManager:
 
     async def fetch_content(self, url: str, keywords: List[str]):
         """Fetch the content of a URL with deep crawling."""
-        logger.info(f"Démarrage du crawling pour l'URL: {url}")
+        logger.info(f"Start crawling from URL: {url}")
 
         exclude_patterns = self._get_exclude_patterns()
         # Check if the starting URL should be excluded
@@ -98,8 +99,8 @@ class CrawlerManager:
         scorer = KeywordRelevanceScorer(keywords=keywords, weight=1000.0)
 
         scraping_strategy = DFSDeepCrawlStrategy(
-            max_depth=5,
-            max_pages=5,
+            max_depth=4,
+            max_pages=10,
             include_external=False,
             url_scorer=scorer,
             filter_chain=FilterChain([exclude_filter]),
@@ -113,9 +114,9 @@ class CrawlerManager:
             scan_full_page=True,
             wait_for_images=True,
             # Add delays to avoid detection
-            mean_delay=1.0,
+            mean_delay=2.0,
             # Additional pause (seconds) before final HTML is captured.
-            delay_before_return_html=1.0,
+            delay_before_return_html=5.0,
             scroll_delay=1.0,
             # Simulate a user
             simulate_user=True,
@@ -132,9 +133,8 @@ class CrawlerManager:
 
         try:
             # Create a new crawler for each request
-            async with AsyncWebCrawler(config=self.browser_config) as crawler:
-                return await crawler.arun(url=url, config=run_config)
+            crawler = await self.init_crawler()
+            return await crawler.arun(url=url, config=run_config)
         except Exception as e:
             logger.error(f"Erreur lors du crawling: {str(e)}")
-            # Return an empty list instead of raising an exception
             raise e

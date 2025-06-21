@@ -9,7 +9,7 @@ from prompts.analyze_tsst_context import (
 )
 
 # Import des services LLM existants
-from services.llm_services import LLM_MODELS, call_anthropic, call_scaleway
+from services.llm_services import LLM_MODELS, call_scaleway
 
 
 class TSSTClassifier:
@@ -53,11 +53,7 @@ class TSSTClassifier:
         """
         try:
             # Sélectionner le service LLM approprié
-            if "Anthropic" in self.model_name:
-                response = call_anthropic(
-                    prompt, model=self.model_technical_name
-                )
-            elif "Scaleway" in self.model_name:
+            if "Scaleway" in self.model_name:
                 response = call_scaleway(
                     prompt, model=self.model_technical_name
                 )

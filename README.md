@@ -34,10 +34,10 @@ docker --version
 ### Créer et activer un environnement virtuel :
 
 ```bash
-python -m venv tab
-source tab/bin/activate
+python -m venv venv
+source venv/bin/activate
 # Sur Windows :
-.\tab\Scripts\activate
+.\venv\Scripts\activate
 ```
 
 ### Copier les variables d'environnement :
@@ -49,7 +49,7 @@ cp .env.example .env
 ### Installer les outils de développement :
 
 ```bash
-python -m pip install --no-user -r requirements-dev.txt
+pip install -r requirements-dev.txt
 ```
 
 
@@ -91,13 +91,13 @@ cz commit
 
 1. Activez votre environnement virtuel :
    ```bash
-   source tab/bin/activate  # ou .\tab\Scripts\activate sur Windows
+   source venv/bin/activate  # ou .\venv\Scripts\activate sur Windows
    ```
 
 2. Installez les dépendances :
    ```bash
-   pip install -r app/requirements.txt
-   tab/bin/python -m spacy download fr_core_news_lg
+   pip install -r requirements.txt
+   venv/bin/python -m spacy download fr_core_news_md
    ```
 
 3. Lancez l'application Streamlit :
@@ -125,4 +125,37 @@ cz commit
 
 4. Pour arrêter le conteneur, utilisez `Ctrl+C` ou trouvez l'ID du conteneur avec `docker ps` puis exécutez `docker stop <container_id>`
 
-## Déploiement sur Streamlit Cloud
+## Tests Unitaires
+
+1. Option 1 : lancer les tests ponctuellement
+   ```bash
+   pytest tests/ -v
+   ```
+
+2. Option 2 : tests lancés au fur et à mesure du développement
+   ```bash
+   pytest-watch tests/ -v
+   ```
+
+3. Option 3 : lancer les tests au moment du commit
+   Pre-commit est déjà configuré por bloquer le commit si les
+   tests ne passent plus
+
+## Configuration de Langsmith
+
+### Tracking automatique
+- Tous les appels LLM sont automatiquement trackés
+- Les prompts, réponses, et métadonnées sont sauvegardés
+- Les erreurs et temps d'exécution sont enregistrés
+
+### 1. Créer un compte LangSmith
+
+1. Allez sur [smith.langchain.com](https://smith.langchain.com)
+2. Créez un compte ou connectez-vous
+3. Créez un nouveau projet nommé `social-solidarity-transport-fares`
+
+### 2. Obtenir la clé API
+
+1. Dans LangSmith, allez dans Settings > API Keys
+2. Créez une nouvelle clé API
+3. Copiez la clé et ajoutez-la à votre `.env` comme `LANGCHAIN_API_KEY`

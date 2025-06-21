@@ -2,8 +2,13 @@ import asyncio
 import logging
 import os
 
+import nest_asyncio
 import pandas as pd
 import streamlit as st
+
+# Initialize the event loop before importing crawl4ai
+# flake8: noqa: E402
+nest_asyncio.apply()
 
 from constants.keywords import DEFAULT_KEYWORDS
 from models.grist_models import AomTags
@@ -35,11 +40,6 @@ def on_page_load():
             ),
         }
     logging.info("Page 'Tags extraction - batch' chargée et initialisée")
-
-
-def reset_crawlers():
-    logging.info("reset_crawlers")
-    os._exit(0)
 
 
 def change_config():
@@ -111,6 +111,7 @@ if "page_loaded" not in st.session_state:
     st.session_state.page_loaded = True
     on_page_load()
 
+
 st.set_page_config(
     page_title="Tags extraction - batch", layout="wide", page_icon="📦"
 )
@@ -119,12 +120,6 @@ st.header("📦 Tags extraction - batch")
 st.markdown(
     "Cette section permet de lancer un traitement batch pour plusieurs AOMs en utilisant les configurations définies ci-dessus."
 )
-st.markdown("Avant tout traitement batch, penser à **reset les crawlers** 👇")
-
-if st.button(
-    "♻️ Reset les crawlers", type="secondary", use_container_width=True
-):
-    reset_crawlers()
 
 if "batch_processing_active" not in st.session_state:
     st.session_state.batch_processing_active = False
@@ -177,6 +172,10 @@ selected_model_name = st.selectbox(
 
 aoms = asyncio.run(get_aom_transport_offers())
 
+# init crawler event loop
+if "loop" not in st.session_state:
+    st.session_state.loop = asyncio.new_event_loop()
+
 if st.button(
     "🚀 Lancer le traitement batch", type="primary", use_container_width=True
 ):
@@ -189,8 +188,9 @@ if st.button(
     with progress_container:
         progress_bar = st.progress(0)
         status_text = st.empty()
-
-        batch_processor = BatchProcessor(max_workers=4)
+        # init crawler event loop
+        loop = st.session_state.loop
+        batch_processor = BatchProcessor(loop, max_workers=1)
 
         # Lancer le traitement batch
         with st.spinner("Traitement batch en cours..."):
