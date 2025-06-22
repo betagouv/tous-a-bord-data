@@ -258,15 +258,22 @@ if aoms:
     # Créer une liste d'options pour le multiselect des AOMs
     aom_options = [f"{aom.nom_aom} ({aom.n_siren_aom})" for aom in aoms]
 
-    # Filtrer le DataFrame en fonction du terme de recherche
-    filtered_df = filter_dataframe(aom_df, search_term)
-
     # Obtenir les indices des lignes filtrées dans le DataFrame original
-    filtered_indices = (
-        filtered_df.index.tolist()
-        if not filtered_df.empty
-        else list(range(len(aom_options)))
-    )
+    # Utiliser le filtered_df déjà défini plus haut dans le code
+    filtered_indices = list(range(len(aom_options)))
+    if not filtered_df.empty:
+        # Récupérer les SIREN des AOMs filtrées
+        filtered_sirens = (
+            filtered_df["n_siren_groupement"].astype(str).tolist()
+            if "n_siren_groupement" in filtered_df.columns
+            else []
+        )
+        # Trouver les indices des AOMs correspondantes
+        filtered_indices = [
+            i
+            for i, aom in enumerate(aoms)
+            if str(aom.n_siren_aom) in filtered_sirens
+        ]
 
     # Boutons pour sélectionner/désélectionner toutes les AOMs filtrées
     col1, col2 = st.columns(2)
