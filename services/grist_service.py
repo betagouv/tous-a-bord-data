@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from typing import Dict, List, Optional, Union
 
 import requests
@@ -172,7 +173,7 @@ class GristDataService:
             payload = {"records": records}
 
             # Log the payload for debugging
-            logging.info(f"Payload for update_aom_tags: {payload}")
+            logging.info(f"Payload for update_aom: {payload}")
 
             # Make the PUT request to update the records
             response = requests.put(url, headers=self.headers, json=payload)
@@ -279,6 +280,31 @@ class GristDataService:
                 ]
             else:
                 raise ValueError(f"Format de données inattendu: {type(data)}")
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération des aoms: {e}")
+            raise
+
+    async def get_aom_transport_offer_by_siren(
+        self, doc_id: str, siren: int
+    ) -> List[Aom]:
+        """
+        Retrieve Aom transport offer from Grist filtered by SIREN number
+
+        Args:
+            doc_id: The Grist document ID to use for this operation
+            siren: The SIREN number to filter by
+        """
+        try:
+            # Use the existing get_aoms method to retrieve all AOMs
+            aoms = await self.get_aom_transport_offers(doc_id)
+
+            # Filter AOMs by the provided SIREN number
+            filtered_aom = [
+                aom for aom in aoms if str(aom.n_siren_groupement) == siren
+            ][0]
+            print(f"Filtered AOMs for SIREN {siren}: {filtered_aom}")
+            return filtered_aom
+
         except Exception as e:
             logging.error(f"Erreur lors de la récupération des aoms: {e}")
             raise
@@ -391,7 +417,7 @@ class GristDataService:
             payload = {"records": records}
 
             # Log the payload for debugging
-            logging.info(f"Payload for update_aom_tags: {payload}")
+            logging.info(f"Payload for update_aom_transport_offers: {payload}")
 
             # Make the PUT request to update the records
             response = requests.put(url, headers=self.headers, json=payload)
@@ -502,7 +528,7 @@ class GristDataService:
             raise
 
     async def update_aom_tags(
-        self, aoms: List[AomTags], doc_id: str
+        self, aom: AomTags, doc_id: str, date=datetime.now().isoformat()
     ) -> Dict[str, Union[int, List[Dict]]]:
         """
         Update AOM transport offers in Grist
@@ -517,29 +543,21 @@ class GristDataService:
             logging.info(f"URL for update_aom_tags: {url}")
 
             # Format the records for the API request
-            records = []
-            for aom in aoms:
-                aom_dict = aom.model_dump()
-                # Use a combination of n_siren_groupement and site_web_principal as identifiers
-                record = {
-                    "require": {
-                        "n_siren_groupement": aom_dict.get(
-                            "n_siren_groupement"
-                        ),
-                    },
-                    "fields": aom_dict,
-                }
-                records.append(record)
-
-            payload = {"records": records}
-
+            aom_dict = aom.model_dump()
+            aom_dict["updated_at"] = date  # Add the date field to the record
+            # Use a combination of n_siren_groupement and site_web_principal as identifiers
+            record = {
+                "require": {
+                    "n_siren_groupement": aom_dict.get("n_siren_groupement"),
+                },
+                "fields": aom_dict,
+            }
+            payload = {"records": [record]}
             # Log the payload for debugging
             logging.info(f"Payload for update_aom_tags: {payload}")
-
             # Make the PUT request to update the records
             response = requests.put(url, headers=self.headers, json=payload)
             response.raise_for_status()
-
             return response.json()
         except Exception as e:
             logging.error(
