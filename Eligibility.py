@@ -5,6 +5,7 @@ import os
 import nest_asyncio
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
 
 # Initialize the event loop before importing crawl4ai
 # flake8: noqa: E402
@@ -15,9 +16,44 @@ from models.grist_models import AomTags
 from services.batch_tag_extraction import BatchProcessor
 from services.grist_service import GristDataService
 from services.llm_services import LLM_MODELS
+from utils.dataframe_utils import filter_dataframe
+
+FLY_API_TOKEN = os.getenv("FLY_API_TOKEN")
+APP_NAME = "tous-a-bord-data"
+
+load_dotenv()
 
 
 # utils
+async def fetch_aoms_from_grist():
+    """Charge les données des AOM depuis Grist."""
+    try:
+        # Utilisation du singleton pattern
+        grist_service = GristDataService.get_instance(
+            api_key=os.getenv("GRIST_API_KEY"),
+        )
+        doc_id = os.getenv("GRIST_DOC_OUTPUT_ID")
+        aoms = await grist_service.get_aom_tags(doc_id)
+
+        # Filtrer les tags "L" des criteres_eligibilite et fournisseurs
+        for aom in aoms:
+            if aom.criteres_eligibilite:
+                aom.criteres_eligibilite = [
+                    tag for tag in aom.criteres_eligibilite if tag != "L"
+                ]
+            if aom.fournisseurs:
+                aom.fournisseurs = [
+                    fournisseur
+                    for fournisseur in aom.fournisseurs
+                    if fournisseur != "L"
+                ]
+
+        return pd.DataFrame([aom.model_dump() for aom in aoms])
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des AOM depuis Grist: {str(e)}")
+        return pd.DataFrame()
+
+
 def on_page_load():
     if "batch_processing_active" not in st.session_state:
         st.session_state.batch_processing_active = False
@@ -76,16 +112,75 @@ def update_progress(current, total, result):
 
 
 # UI
+st.set_page_config(
+    page_title="Critères d'éligibilité à la tarification sociale et solidaire des transports",
+    page_icon="🚌",
+    layout="wide",
+)
+st.subheader(
+    "Critères d'éligibilité à la tarification sociale et solidaire des transports"
+)
+
+try:
+    if "aoms_data" not in st.session_state:
+        st.session_state.aoms_data = asyncio.run(fetch_aoms_from_grist())
+except Exception as e:
+    st.error(f"Erreur lors du chargement des données: {str(e)}")
+    st.session_state.aoms_data = pd.DataFrame()
+
+# Search bar
+search_term = st.text_input(
+    "🔍 Rechercher dans toutes les colonnes",
+    placeholder="Exemple : Bordeaux Métropole",
+)
+
+# Filter the data
+filtered_df = filter_dataframe(st.session_state.aoms_data, search_term)
+
+# Display the number of results
+nb_results = len(filtered_df)
+
+# Safely calculate population
+try:
+    # Check if filtered_df is a DataFrame and has the population_aom column
+    if (
+        isinstance(filtered_df, pd.DataFrame)
+        and "population_aom" in filtered_df.columns
+    ):
+        # Filter out None values and convert to numeric
+        population_values = pd.to_numeric(
+            filtered_df["population_aom"].dropna(), errors="coerce"
+        )
+        population = population_values.sum()
+    else:
+        # If filtered_df is not a DataFrame or doesn't have the column, set population to 0
+        population = 0
+except Exception as e:
+    st.warning(f"Erreur lors du calcul de la population: {str(e)}")
+    population = 0
+
+first = f"**{nb_results} AOM{'s' if nb_results > 1 else ''}**"
+second = f"trouvée{'s' if nb_results > 1 else ''}"
+taux_population = population * 100 / 66647129 if population > 0 else 0
+st.write(
+    f"📊{first} {second}, soit " f"**{taux_population:.2f}% de la population**"
+)
+
+# Display the filtered table
+st.dataframe(
+    filtered_df,
+    hide_index=True,
+)
+
+
+# UI
 if "page_loaded" not in st.session_state:
     st.session_state.page_loaded = True
     on_page_load()
 
+st.divider()
+st.subheader("Extraction des critères d'éligibilité - Batch")
 
-st.set_page_config(
-    page_title="Tags extraction - batch", layout="wide", page_icon="📦"
-)
-
-st.header("📦 Tags extraction - batch")
 st.markdown(
     "Cette section permet de lancer un traitement batch pour plusieurs AOMs en utilisant les configurations définies ci-dessus."
 )
@@ -160,32 +255,18 @@ if aoms:
         ]
     )
 
-    # Afficher un aperçu des AOMs disponibles
-    with st.expander("Aperçu des AOMs disponibles"):
-        st.dataframe(aom_df)
-
-    # Ajouter un champ de recherche pour filtrer les AOMs
-    search_term = st.text_input(
-        "Rechercher une AOM (par nom ou SIREN):",
-        placeholder="Entrez un terme de recherche...",
-        help="Filtrez la liste des AOMs en saisissant une partie du nom ou du numéro SIREN",
-    )
-
     # Créer une liste d'options pour le multiselect des AOMs
     aom_options = [f"{aom.nom_aom} ({aom.n_siren_aom})" for aom in aoms]
 
-    # Filtrer les options en fonction du terme de recherche
-    filtered_indices = []
-    if search_term:
-        search_term = search_term.lower()
-        filtered_indices = [
-            i
-            for i, option in enumerate(aom_options)
-            if search_term in option.lower()
-            or search_term in str(aoms[i].n_siren_aom)
-        ]
-    else:
-        filtered_indices = list(range(len(aom_options)))
+    # Filtrer le DataFrame en fonction du terme de recherche
+    filtered_df = filter_dataframe(aom_df, search_term)
+
+    # Obtenir les indices des lignes filtrées dans le DataFrame original
+    filtered_indices = (
+        filtered_df.index.tolist()
+        if not filtered_df.empty
+        else list(range(len(aom_options)))
+    )
 
     # Boutons pour sélectionner/désélectionner toutes les AOMs filtrées
     col1, col2 = st.columns(2)

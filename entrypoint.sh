@@ -5,5 +5,5 @@ if [ -n "$BATCH_MODE" ]; then
     python -c "import os; from scripts.run_tag_pipeline import main; main(os.getenv('SIREN'))"
 else
     # Sinon, lancer le serveur Streamlit normal
-    streamlit run main.py --server.port=${PORT:-8080} --server.address=0.0.0.0
+    streamlit run Eligibility.py --server.port=${PORT:-8080} --server.address=0.0.0.0
 fi
