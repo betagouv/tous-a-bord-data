@@ -22,4 +22,8 @@ EXPOSE 8080
 
 HEALTHCHECK CMD curl --fail http://localhost:8080/_stcore/health
 
-ENTRYPOINT ["sh", "-c", "streamlit run main.py --server.port=8080 --server.address=0.0.0.0"]
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Définir le nouvel entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"]

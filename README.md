@@ -176,7 +176,7 @@ Fly.io permet de déployer des image docker de plus de 3GB sur un serveur FR.
    fly launch --region cdg
    ```
 
-4. Déployer
+3. Déployer
    ```bash
    fly deploy
    ```

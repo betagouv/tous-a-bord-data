@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import threading
 from dataclasses import dataclass
@@ -52,10 +51,9 @@ class ProcessingStatus:
 class BatchProcessor:
     """Service de traitement batch pour toutes les AOMs"""
 
-    def __init__(self, crawler_event_loop, max_workers: int = 1):
+    def __init__(self, max_workers: int = 1):
         self.max_workers = max_workers
         self.nlp = None
-        self.crawler_event_loop = crawler_event_loop
         self._processing_status = (
             {}
         )  # Dict pour suivre le status de chaque AOM
@@ -97,16 +95,17 @@ class BatchProcessor:
         with self._lock:
             return self._processing_status.copy()
 
-    def process_single_aom(
+    async def process_single_aom(
         self,
         siren: str,
         nom_aom: str,
-        nb_sources: int,
         step_callback: Callable = None,
         url: str = None,
     ) -> BatchResult:
         """Traite une seule AOM avec callbacks détaillés"""
         start_time = datetime.now()
+
+        self.initialize_nlp()
 
         def update_step(step: str, progress: float):
             if step_callback:
@@ -118,16 +117,15 @@ class BatchProcessor:
             update_step("Démarrage du traitement", 0.0)
 
             # 1. Récupérer le contenu via le crawler
+            logger.info("Récupération du contenu via le crawler")
             update_step("Récupération du contenu via le crawler", 0.1)
             raw_content = ""
 
             if url:
                 try:
                     # Utiliser le crawler partagé pour récupérer le contenu
-                    loop = self.crawler_event_loop
-                    asyncio.set_event_loop(loop)
-                    pages = loop.run_until_complete(
-                        self.crawler_manager.fetch_content(url, self.keywords)
+                    pages = await self.crawler_manager.fetch_content(
+                        url, self.keywords
                     )
 
                     # Combiner le contenu de toutes les pages
@@ -140,6 +138,7 @@ class BatchProcessor:
                     # Continuer avec un contenu vide
             else:
                 logger.warning(f"Aucune URL fournie pour l'AOM {siren}")
+
             if not raw_content or not raw_content.strip():
                 update_step("Terminé - Aucun contenu", 1.0)
                 return BatchResult(
@@ -150,18 +149,20 @@ class BatchProcessor:
                     processing_time=(
                         datetime.now() - start_time
                     ).total_seconds(),
-                    nb_sources=nb_sources,
                     current_step="Terminé - Aucun contenu",
                 )
 
             nb_tokens_original = self.count_tokens_simple(raw_content)
-            update_step("Extraction du texte markdown", 0.3)
 
             # 2. Filtrage NLP
-            update_step("Normalisation du texte", 0.4)
+            logger.info("Extraction du texte markdown")
+            update_step("Extraction du texte markdown", 0.3)
             raw_text = extract_markdown_text(raw_content)
+            logger.info("Normalisation du texte")
+            update_step("Normalisation du texte", 0.4)
             paragraphs = normalize_text(raw_text, self.nlp)
 
+            logger.info("Filtrage des paragraphes pertinents")
             update_step("Filtrage des paragraphes pertinents", 0.6)
             paragraphs_filtered, _ = filter_transport_fare(
                 paragraphs, self.nlp
@@ -169,6 +170,7 @@ class BatchProcessor:
             filtered_content = "\n\n".join(paragraphs_filtered)
 
             if not filtered_content or not filtered_content.strip():
+                logger.info("Terminé - Aucun contenu pertinent")
                 update_step("Terminé - Aucun contenu pertinent", 1.0)
                 return BatchResult(
                     n_siren_aom=siren,
@@ -180,7 +182,6 @@ class BatchProcessor:
                     ).total_seconds(),
                     nb_tokens_original=nb_tokens_original,
                     nb_tokens_filtered=0,
-                    nb_sources=nb_sources,
                     current_step="Terminé - Aucun contenu pertinent",
                 )
 
@@ -188,6 +189,9 @@ class BatchProcessor:
 
             # 3. Classification TSST avec LLM
             if self.model_name:
+                logger.info(
+                    f"Classification TSST avec le modèle {self.model_name}"
+                )
                 update_step(f"Classification TSST avec {self.model_name}", 0.7)
                 try:
                     # Initialiser le classifieur TSST avec le modèle spécifié
@@ -200,6 +204,7 @@ class BatchProcessor:
 
                     # Si le contenu ne concerne pas la TSST, arrêter le traitement
                     if not is_tsst:
+                        logger.info("Terminé - Contenu non TSST")
                         update_step("Terminé - Contenu non TSST", 1.0)
                         return BatchResult(
                             n_siren_aom=siren,
@@ -211,7 +216,6 @@ class BatchProcessor:
                             ).total_seconds(),
                             nb_tokens_original=nb_tokens_original,
                             nb_tokens_filtered=nb_tokens_filtered,
-                            nb_sources=nb_sources,
                             current_step="Terminé - Contenu non TSST",
                         )
                 except Exception as e:
@@ -221,12 +225,16 @@ class BatchProcessor:
                     # Continuer même en cas d'erreur de classification
 
             # 4. Extraction des tags et fournisseurs
+            logger.info("Extraction des tags et fournisseurs")
             update_step("Extraction des tags et fournisseurs", 0.8)
             tags, providers, _, _ = extract_tags_and_providers(
                 filtered_content, self.nlp, siren, nom_aom
             )
 
             processing_time = (datetime.now() - start_time).total_seconds()
+            logger.info(
+                f"Traitement terminé pour {siren} - {nom_aom} en {processing_time:.2f} secondes"
+            )
             update_step("Terminé avec succès", 1.0)
 
             # Marquer comme terminé dans le status
@@ -243,7 +251,6 @@ class BatchProcessor:
                 processing_time=processing_time,
                 nb_tokens_original=nb_tokens_original,
                 nb_tokens_filtered=nb_tokens_filtered,
-                nb_sources=nb_sources,
                 current_step="Terminé avec succès",
             )
 
@@ -262,7 +269,6 @@ class BatchProcessor:
                 status="error",
                 error_message=str(e),
                 processing_time=(datetime.now() - start_time).total_seconds(),
-                nb_sources=nb_sources,
                 current_step=f"Erreur: {str(e)}",
             )
 

@@ -283,6 +283,31 @@ class GristDataService:
             logging.error(f"Erreur lors de la récupération des aoms: {e}")
             raise
 
+    async def get_aom_transport_offer_by_siren(
+        self, doc_id: str, siren: int
+    ) -> List[Aom]:
+        """
+        Retrieve Aom transport offer from Grist filtered by SIREN number
+
+        Args:
+            doc_id: The Grist document ID to use for this operation
+            siren: The SIREN number to filter by
+        """
+        try:
+            # Use the existing get_aoms method to retrieve all AOMs
+            aoms = await self.get_aom_transport_offers(doc_id)
+
+            # Filter AOMs by the provided SIREN number
+            filtered_aom = [
+                aom for aom in aoms if str(aom.n_siren_groupement) == siren
+            ][0]
+            print(f"Filtered AOMs for SIREN {siren}: {filtered_aom}")
+            return filtered_aom
+
+        except Exception as e:
+            logging.error(f"Erreur lors de la récupération des aoms: {e}")
+            raise
+
     async def delete_aom_transport_offers(
         self, offers: List[AomTransportOffer], doc_id: str
     ) -> Dict[str, Union[int, List[Dict]]]:
