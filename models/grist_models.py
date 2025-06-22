@@ -445,5 +445,6 @@ class AomTags(BaseModel):
         except (ValueError, TypeError):
             return None
 
+    updated_at: Optional[datetime] = None
     criteres_eligibilite: Optional[List[str]] = None
     fournisseurs: Optional[List[str]] = None

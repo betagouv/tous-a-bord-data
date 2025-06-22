@@ -1,10 +1,12 @@
 import logging
+import os
 import threading
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Dict, List
+from typing import Callable, List
 
 from constants.keywords import DEFAULT_KEYWORDS
+from services.grist_service import GristDataService
 from services.nlp_services import (
     extract_markdown_text,
     extract_tags_and_providers,
@@ -33,19 +35,7 @@ class BatchResult:
     processing_time: float = None
     nb_tokens_original: int = 0
     nb_tokens_filtered: int = 0
-    nb_sources: int = 0
     current_step: str = ""  # Nouvelle propriété pour l'étape courante
-
-
-@dataclass
-class ProcessingStatus:
-    """Status de traitement en temps réel"""
-
-    aom_id: str
-    nom_aom: str
-    status: str
-    current_step: str
-    progress: float  # 0.0 à 1.0
 
 
 class BatchProcessor:
@@ -54,9 +44,6 @@ class BatchProcessor:
     def __init__(self, max_workers: int = 1):
         self.max_workers = max_workers
         self.nlp = None
-        self._processing_status = (
-            {}
-        )  # Dict pour suivre le status de chaque AOM
         self._lock = threading.Lock()  # Pour thread-safety
         self.keywords = DEFAULT_KEYWORDS.copy()  # Mots-clés pour le scraping
         self.model_name = None  # Modèle LLM pour la classification TSST
@@ -72,45 +59,22 @@ class BatchProcessor:
         """Compte approximativement les tokens (méthode rapide)"""
         return len(text.split()) if text else 0
 
-    def _update_processing_status(
-        self,
-        siren: str,
-        nom_aom: str,
-        step: str,
-        progress: float,
-        status: str = "processing",
-    ):
-        """Met à jour le status de traitement d'une AOM"""
-        with self._lock:
-            self._processing_status[siren] = ProcessingStatus(
-                aom_id=siren,
-                nom_aom=nom_aom,
-                status=status,
-                current_step=step,
-                progress=progress,
-            )
-
-    def get_processing_status(self) -> Dict[str, ProcessingStatus]:
-        """Récupère le status actuel de tous les traitements"""
-        with self._lock:
-            return self._processing_status.copy()
-
     async def process_single_aom(
         self,
-        siren: str,
-        nom_aom: str,
+        aom,
         step_callback: Callable = None,
-        url: str = None,
     ) -> BatchResult:
         """Traite une seule AOM avec callbacks détaillés"""
         start_time = datetime.now()
 
         self.initialize_nlp()
+        siren = str(aom.n_siren_aom) if hasattr(aom, "n_siren_aom") else ""
+        nom_aom = aom.nom_aom if hasattr(aom, "nom_aom") else f"AOM {siren}"
+        url = getattr(aom, "site_web_principal", None)
 
         def update_step(step: str, progress: float):
             if step_callback:
                 step_callback(siren, nom_aom, step, progress)
-            self._update_processing_status(siren, nom_aom, step, progress)
 
         try:
             logger.info(f"Traitement de {siren} - {nom_aom}")
@@ -231,16 +195,19 @@ class BatchProcessor:
                 filtered_content, self.nlp, siren, nom_aom
             )
 
+            logger.info("Update AOM dans Grist")
+            update_step("Update AOM dans Grist", 0.9)
+
             processing_time = (datetime.now() - start_time).total_seconds()
             logger.info(
                 f"Traitement terminé pour {siren} - {nom_aom} en {processing_time:.2f} secondes"
             )
             update_step("Terminé avec succès", 1.0)
-
-            # Marquer comme terminé dans le status
-            with self._lock:
-                if siren in self._processing_status:
-                    self._processing_status[siren].status = "success"
+            grist_service = GristDataService.get_instance(
+                api_key=os.getenv("GRIST_API_KEY")
+            )
+            doc_id = os.getenv("GRIST_DOC_OUTPUT_ID")
+            await grist_service.update_aom_tags(aom, doc_id)
 
             return BatchResult(
                 n_siren_aom=siren,
@@ -258,11 +225,6 @@ class BatchProcessor:
             logger.error(f"Erreur pour {siren} - {nom_aom}: {str(e)}")
             update_step(f"Erreur: {str(e)}", 1.0)
 
-            # Marquer comme erreur dans le status
-            with self._lock:
-                if siren in self._processing_status:
-                    self._processing_status[siren].status = "error"
-
             return BatchResult(
                 n_siren_aom=siren,
                 nom_aom=nom_aom,
@@ -272,7 +234,7 @@ class BatchProcessor:
                 current_step=f"Erreur: {str(e)}",
             )
 
-    def process_batch(
+    async def process_batch(
         self,
         aom_list,
         progress_callback=None,
@@ -280,38 +242,23 @@ class BatchProcessor:
     ) -> List[BatchResult]:
         """Traite un batch d'AOMs de manière séquentielle"""
 
-        # Initialiser le modèle NLP une seule fois
-        self.initialize_nlp()
-
         logger.info(f"Démarrage du traitement batch pour {len(aom_list)} AOMs")
-
-        # Réinitialiser le status
-        with self._lock:
-            self._processing_status.clear()
 
         results = []
 
         # Traitement séquentiel (une AOM à la fois)
         for i, aom in enumerate(aom_list):
             # Extraire les informations de l'AOM
+            siren = ""
+            nom_aom = ""
             if hasattr(aom, "n_siren_aom") and hasattr(aom, "nom_aom"):
                 # Si c'est un objet AomTransportOffer
                 siren = str(aom.n_siren_aom)
                 nom_aom = aom.nom_aom
-                nb_sources = 1
-                url = getattr(aom, "site_web_principal", None)
-            else:
-                # Fallback pour d'autres formats
-                siren = str(aom)
-                nom_aom = f"AOM {aom}"
-                nb_sources = 1
-                url = None
 
             try:
                 # Traiter cette AOM
-                result = self.process_single_aom(
-                    siren, nom_aom, nb_sources, step_callback, url
-                )
+                result = await self.process_single_aom(aom, step_callback)
                 results.append(result)
 
                 # Callback pour mettre à jour la progress bar

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 
 from services.batch_tag_extraction import BatchProcessor
@@ -11,12 +12,10 @@ async def process_siren(siren: str):
     aom = await grist_service.get_aom_transport_offer_by_siren(doc_id, siren)
 
     processor = BatchProcessor()
-    result = await processor.process_single_aom(
-        siren=siren, nom_aom=aom.nom_aom, url=aom.site_web_principal
-    )
+    result = await processor.process_single_aom(aom)
 
     # Version 1: Log des résultats
-    print(result)
+    logging.info(result)
 
     # Version 2: Sauvegarde dans Grist
     # await grist_service.save_result(aom.id, result)
