@@ -2,7 +2,6 @@ import asyncio
 import os
 
 import pandas as pd
-import requests
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -43,33 +42,6 @@ async def fetch_aoms_from_grist():
     except Exception as e:
         st.error(f"Erreur lors du chargement des AOM depuis Grist: {str(e)}")
         return pd.DataFrame()
-
-
-def launch_fly_machines():
-    sirens = st.session_state.aoms_data["siren"].dropna().unique()
-    for siren in sirens:
-        machine_config = {
-            "name": f"batch-job-{siren}",
-            "config": {
-                "image": "registry.fly.io/tous-a-bord-data:latest",
-                "env": {
-                    "SIREN": str(siren),
-                    "GRIST_API_KEY": os.getenv("GRIST_API_KEY"),
-                    "GRIST_DOC_ID": os.getenv("GRIST_DOC_ID"),
-                },
-                "restart": {"policy": "no"},
-                "auto_destroy": True,
-                "size": "performance-1x",
-                "region": "cdg",
-            },
-        }
-        response = requests.post(
-            f"https://api.machines.dev/v1/apps/{APP_NAME}/machines",
-            json=machine_config,
-            headers={"Authorization": f"Bearer {FLY_API_TOKEN}"},
-        )
-        if response.status_code != 200:
-            st.error(f"Erreur pour {siren}: {response.text}")
 
 
 # UI
@@ -129,5 +101,3 @@ st.dataframe(
     filtered_df,
     hide_index=True,
 )
-
-st.button("Lancer le batch", on_click=launch_fly_machines)

@@ -107,7 +107,7 @@ cz commit
 
 4. Accédez à l'application dans votre navigateur à l'adresse [http://localhost:8501](http://localhost:8501)
 
-### Option 2 : Exécution avec Docker
+### Option 2 : Exécution avec Docker en local
 
 1. Construisez l'image Docker :
    ```bash
@@ -116,12 +116,12 @@ cz commit
 
 2. Lancez le conteneur :
    ```bash
-   docker run -p 8501:8501 --env-file .env tous-a-bord-streamlit
+   docker run -p 8080:8080 --env-file .env tous-a-bord-streamlit
    ```
 
    **Note importante :** Ne définissez pas la variable `PORT` dans votre fichier `.env` pour le développement local. Cette variable est réservée pour le déploiement sur Scalingo et sera automatiquement définie par la plateforme.
 
-3. Accédez à l'application dans votre navigateur à l'adresse [http://localhost:8501](http://localhost:8501)
+3. Accédez à l'application dans votre navigateur à l'adresse [http://localhost:8080](http://localhost:8080)
 
 4. Pour arrêter le conteneur, utilisez `Ctrl+C` ou trouvez l'ID du conteneur avec `docker ps` puis exécutez `docker stop <container_id>`
 
@@ -176,7 +176,12 @@ Fly.io permet de déployer des image docker de plus de 3GB sur un serveur FR.
    fly launch --region cdg
    ```
 
-3. Déployer
+4. Déployer
    ```bash
    fly deploy
+   ```
+
+7. S'assurer que toutes les machines sont stoppées (et détruites) après un traitement batch
+   ```bash
+   flyctl machine list --app tous-a-bord-data --json | jq -r '.[].id' | xargs -I {} flyctl machine stop {} --app tous-a-bord-data
    ```
