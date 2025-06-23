@@ -14,6 +14,7 @@ from constants.urls import URL_PASSIM_AOMS, URL_PASSIM_OFFRES_TRANSPORT
 from models.grist_models import Aom, AomTransportOffer, DownloadedAom
 from services.grist_service import GristDataService
 from services.transport_gouv_client import get_aom_dataset
+from utils.auth_utils import add_logout_button, authenticate
 from utils.parser_utils import format_column
 
 # Page configuration
@@ -25,6 +26,13 @@ st.set_page_config(
 
 # Load environment variables
 load_dotenv()
+
+# Vérifier l'authentification avant d'afficher le contenu
+if not authenticate():
+    st.stop()  # Arrêter l'exécution si non authentifié
+
+# Ajouter un bouton de déconnexion
+add_logout_button()
 
 # Initialize session state
 if "update_performed" not in st.session_state:
