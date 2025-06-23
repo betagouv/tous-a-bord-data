@@ -521,7 +521,7 @@ async def upload_aoms_with_offers(
         progress_bar = progressbar_placeholder.progress(0)
 
         # Define batch size for better performance
-        batch_size = 50
+        batch_size = 1
 
         # Create batches
         batches = [
@@ -545,6 +545,7 @@ async def upload_aoms_with_offers(
 
                 # Count updated records
                 total_updated += len(batch)
+                st.info(total_updated)
 
                 # Update progress
                 progress = min((i + 1) / total_batches, 1.0)

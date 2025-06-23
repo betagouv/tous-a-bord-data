@@ -307,7 +307,7 @@ if aoms:
 
 # Afficher le nombre d'AOMs sélectionnées
 if selected_aom_indices:
-    st.info(f"📊 {len(selected_aom_indices)} AOM(s) sélectionnée(s)")
+    st.info(f"📊 {len(selected_aom_indices)} sites d'AOM(s) sélectionné(s)")
 
 # init crawler event loop
 if "loop" not in st.session_state:

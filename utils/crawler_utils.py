@@ -99,7 +99,7 @@ class CrawlerManager:
         scorer = KeywordRelevanceScorer(keywords=keywords, weight=1000.0)
 
         scraping_strategy = DFSDeepCrawlStrategy(
-            max_depth=1,
+            max_depth=2,
             max_pages=2,
             include_external=False,
             url_scorer=scorer,
