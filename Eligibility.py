@@ -16,6 +16,7 @@ from models.grist_models import AomTags
 from services.batch_tag_extraction import BatchProcessor
 from services.grist_service import GristDataService
 from services.llm_services import LLM_MODELS
+from utils.auth_utils import add_logout_button, authenticate
 from utils.dataframe_utils import filter_dataframe
 
 FLY_API_TOKEN = os.getenv("FLY_API_TOKEN")
@@ -117,6 +118,14 @@ st.set_page_config(
     page_icon="🚌",
     layout="wide",
 )
+
+# Vérifier l'authentification avant d'afficher le contenu
+if not authenticate():
+    st.stop()  # Arrêter l'exécution si non authentifié
+
+# Ajouter un bouton de déconnexion
+add_logout_button()
+
 st.subheader(
     "Critères d'éligibilité à la tarification sociale et solidaire des transports"
 )

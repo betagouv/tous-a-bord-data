@@ -30,6 +30,7 @@ from services.nlp_services import (
     normalize_text,
 )
 from services.tsst_spacy_llm_task import TSSTClassifier
+from utils.auth_utils import add_logout_button, authenticate
 from utils.crawler_utils import CrawlerManager
 
 load_dotenv()
@@ -249,6 +250,14 @@ def show_evaluation_interface(step_name: str) -> None:
 st.set_page_config(
     page_title="Tags extraction - pipeline", layout="wide", page_icon="🏷️"
 )
+
+# Vérifier l'authentification avant d'afficher le contenu
+if not authenticate():
+    st.stop()  # Arrêter l'exécution si non authentifié
+
+# Ajouter un bouton de déconnexion
+add_logout_button()
+
 st.header("🏷️ Tags extraction - pipeline")
 st.subheader("Sélection de l'AOM")
 
