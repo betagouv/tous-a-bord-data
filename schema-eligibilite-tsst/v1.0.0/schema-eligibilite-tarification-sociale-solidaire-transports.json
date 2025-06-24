@@ -5,11 +5,11 @@
   "description": "Spécification du fichier d'échange relatif aux données concernant les autorités organisatrices de mobilité (AOM) et leur éligibilité à la tarification sociale et solidaire des transports.",
   "countryCode": "FR",
   "homepage": "https://github.com/tous-a-bord-data",
-  "path": "https://raw.githubusercontent.com/tous-a-bord-data/schema-aom-eligibility/v1.0.0/schema-eligibite-tarification-sociale-solidaire-transports.json",
+  "path": "https://raw.githubusercontent.com/tous-a-bord-data/schema-eligibilite-tsst/v1.0.0/schema-eligibilite-tarification-sociale-solidaire-transports.json",
   "resources": [
     {
       "title": "Exemple de fichier AOM Eligibility valide",
-      "path": "https://raw.githubusercontent.com/tous-a-bord-data/schema-aom-eligibility/v1.0.0/exemple-valide-aom-eligibility.csv"
+      "path": "https://raw.githubusercontent.com/tous-a-bord-data/schema-eligibilite-tsst/v1.0.0/exemple-valide-eligibilite-tsst.csv"
     }
   ],
   "created": "2024-06-24",
@@ -17,9 +17,9 @@
   "version": "1.0.0",
   "contributors": [
     {
-      "title": "Tous à Bord",
-      "email": "contact@tous-a-bord.data",
-      "organisation": "Tous à Bord",
+      "title": "Aides Simplifiées",
+      "email": "aides.simplifiees@numerique.gouv.fr",
+      "organisation": "Aides Simplifiées",
       "role": "author"
     }
   ],
