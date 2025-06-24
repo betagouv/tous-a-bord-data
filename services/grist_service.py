@@ -539,7 +539,7 @@ class GristDataService:
         """
         try:
             base = f"{self.base_url}/api/docs/{doc_id}"
-            url = f"{base}/tables/AomEligibility/records"
+            url = f"{base}/tables/EligibiliteTarificationSocialeSolidaireTransports/records"
             logging.info(f"URL for update_aom_tags: {url}")
 
             # Format the records for the API request
