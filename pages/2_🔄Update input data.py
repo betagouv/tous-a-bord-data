@@ -273,7 +273,7 @@ async def update_aoms_in_grist(
         total_updated = 0
         for i, batch in enumerate(batches):
             status_placeholder.info(
-                f"Traitement du lot {i+1}/{total_batches} ({len(batch)} aoms par batch)"
+                f"Mise à jour de l'enregistrement {i+1}/{total_batches}"
             )
 
             try:
