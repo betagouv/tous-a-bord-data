@@ -379,6 +379,7 @@ if selected_aom:
 
             # Utiliser les données en session
             sources = st.session_state.raw_scraped_content
+            show_evaluation_interface("scraping")
 
             # Préparer le contenu total pour compter les tokens
             scraped_content = ""
