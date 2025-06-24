@@ -1,0 +1,182 @@
+{
+  "$schema": "https://frictionlessdata.io/schemas/table-schema.json",
+  "name": "schema-eligibilite-tarification-sociale-solidaire-transports.json",
+  "title": "Eligibilite à la tarification sociale et solidaire des transports",
+  "description": "Spécification du fichier d'échange relatif aux données concernant les autorités organisatrices de mobilité (AOM) et leur éligibilité à la tarification sociale et solidaire des transports.",
+  "countryCode": "FR",
+  "homepage": "https://github.com/tous-a-bord-data",
+  "path": "https://raw.githubusercontent.com/tous-a-bord-data/schema-aom-eligibility/v1.0.0/schema-eligibite-tarification-sociale-solidaire-transports.json",
+  "resources": [
+    {
+      "title": "Exemple de fichier AOM Eligibility valide",
+      "path": "https://raw.githubusercontent.com/tous-a-bord-data/schema-aom-eligibility/v1.0.0/exemple-valide-aom-eligibility.csv"
+    }
+  ],
+  "created": "2024-06-24",
+  "lastModified": "2024-06-24",
+  "version": "1.0.0",
+  "contributors": [
+    {
+      "title": "Tous à Bord",
+      "email": "contact@tous-a-bord.data",
+      "organisation": "Tous à Bord",
+      "role": "author"
+    }
+  ],
+  "fields": [
+    {
+      "name": "n_siren_groupement",
+      "description": "Numéro SIREN du groupement auquel appartient l'AOM",
+      "example": "200046977",
+      "type": "integer",
+      "constraints": {
+        "required": false,
+        "pattern": "^\\d{9}$"
+      }
+    },
+    {
+      "name": "n_siren_aom",
+      "description": "Numéro SIREN de l'autorité organisatrice de mobilité",
+      "example": "200046977",
+      "type": "integer",
+      "constraints": {
+        "required": true,
+        "pattern": "^\\d{9}$"
+      }
+    },
+    {
+      "name": "nom_aom",
+      "description": "Nom officiel de l'autorité organisatrice de mobilité",
+      "example": "Métropole de Lyon",
+      "type": "string",
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "commune_principale_aom",
+      "description": "Commune principale de l'autorité organisatrice de mobilité",
+      "example": "Lyon",
+      "type": "string",
+      "constraints": {
+        "required": true
+      }
+    },
+    {
+      "name": "nombre_commune_aom",
+      "description": "Nombre de communes dans le périmètre de l'autorité organisatrice de mobilité",
+      "example": "59",
+      "type": "integer",
+      "constraints": {
+        "required": true,
+        "minimum": 1
+      }
+    },
+    {
+      "name": "population_aom",
+      "description": "Population totale dans le périmètre de l'autorité organisatrice de mobilité",
+      "example": "1385927",
+      "type": "integer",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "surface_km_2",
+      "description": "Surface en kilomètres carrés du territoire de l'autorité organisatrice de mobilité",
+      "example": "533.7",
+      "type": "number",
+      "constraints": {
+        "required": true,
+        "minimum": 0
+      }
+    },
+    {
+      "name": "id_reseau_aom",
+      "description": "Identifiant du réseau de l'autorité organisatrice de mobilité",
+      "example": "123",
+      "type": "integer",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "nom_commercial",
+      "description": "Nom commercial du réseau de transport",
+      "example": "TCL",
+      "type": "string",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "exploitant",
+      "description": "Nom de l'exploitant du réseau de transport",
+      "example": "Keolis Lyon",
+      "type": "string",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "site_web_principal",
+      "description": "URL du site web principal du réseau de transport de l'autoriété organisatrice de mobilité",
+      "example": "https://www.tcl.fr",
+      "type": "string",
+      "format": "uri",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "territoire_s_concerne_s",
+      "description": "Description des territoires concernés par l'autorité organisatrice de mobilité",
+      "example": "Métropole de Lyon et communes limitrophes",
+      "type": "string",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "type_de_contrat",
+      "description": "Type de contrat entre l'autorité organisatrice de mobilité et l'exploitant",
+      "example": "Délégation de service public",
+      "type": "string",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "criteres_eligibilite",
+      "description": "Liste des critères d'éligibilité applicables à la tarification sociale et solidaire des transports pour l'autorité organisatrice de mobilité",
+      "example": "[\"Critère 1\", \"Critère 2\"]",
+      "type": "array",
+      "format": "default",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "fournisseurs",
+      "description": "Liste des fournisseurs de données d'API Particuliers correspondant aux critères d'éligibilité",
+      "example": "[\"Fournisseur 1\", \"Fournisseur 2\"]",
+      "type": "array",
+      "format": "default",
+      "constraints": {
+        "required": false
+      }
+    },
+    {
+      "name": "updated_at",
+      "description": "Date de dernière mise à jour des données",
+      "example": "2024-06-24",
+      "type": "date",
+      "format": "%Y-%m-%d",
+      "constraints": {
+        "required": true
+      }
+    }
+  ],
+  "missingValues": [""]
+}
