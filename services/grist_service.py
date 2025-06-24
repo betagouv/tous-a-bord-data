@@ -439,7 +439,7 @@ class GristDataService:
         """
         try:
             base = f"{self.base_url}/api/docs/{doc_id}"
-            url = f"{base}/tables/AomEligibility/records"
+            url = f"{base}/tables/EligibiliteTarificationSocialeSolidaireTransports/records"
             logging.info(f"URL for get_aom_tags: {url}")
             response = requests.get(url, headers=self.headers)
             response.raise_for_status()
@@ -476,7 +476,7 @@ class GristDataService:
             base = f"{self.base_url}/api/docs/{doc_id}"
 
             # First, get all current records to determine which ones to delete
-            get_url = f"{base}/tables/AomEligibility/records"
+            get_url = f"{base}/tables/EligibiliteTarificationSocialeSolidaireTransports/records"
             logging.info(f"URL for delete_aom_tags (get): {get_url}")
             response = requests.get(get_url, headers=self.headers)
             response.raise_for_status()
@@ -508,7 +508,7 @@ class GristDataService:
 
             # If there are rows to delete, send the delete request
             if rows_to_delete:
-                delete_url = f"{base}/tables/AomEligibility/data/delete"
+                delete_url = f"{base}/tables/EligibiliteTarificationSocialeSolidaireTransports/data/delete"
                 logging.info(f"URL for delete_aom_tags (delete): {delete_url}")
                 response = requests.post(
                     delete_url, headers=self.headers, json=rows_to_delete
