@@ -102,7 +102,7 @@ cz commit
 
 3. Lancez l'application Streamlit :
    ```bash
-   streamlit run main.py
+   streamlit run Eligibility.py
    ```
 
 4. Accédez à l'application dans votre navigateur à l'adresse [http://localhost:8501](http://localhost:8501)

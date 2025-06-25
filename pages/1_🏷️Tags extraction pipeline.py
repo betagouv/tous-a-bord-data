@@ -32,6 +32,7 @@ from services.nlp_services import (
 from services.tsst_spacy_llm_task import TSSTClassifier
 from utils.auth_utils import add_logout_button, authenticate
 from utils.crawler_utils import CrawlerManager
+from utils.streamlit_utils import get_event_loop
 
 load_dotenv()
 
@@ -265,10 +266,7 @@ st.subheader("Sélection de l'AOM")
 if "run_ids" not in st.session_state:
     st.session_state.run_ids = {}
 
-# init crawler event loop
-if "loop" not in st.session_state:
-    st.session_state.loop = asyncio.new_event_loop()
-
+st.session_state.loop = get_event_loop()
 
 aoms = asyncio.run(get_aom_transport_offers())
 
