@@ -18,6 +18,7 @@ from services.grist_service import GristDataService
 from services.llm_services import LLM_MODELS
 from utils.auth_utils import add_logout_button, authenticate
 from utils.dataframe_utils import filter_dataframe
+from utils.streamlit_utils import get_event_loop
 
 FLY_API_TOKEN = os.getenv("FLY_API_TOKEN")
 APP_NAME = "tous-a-bord-data"
@@ -319,8 +320,7 @@ if selected_aom_indices:
     st.info(f"📊 {len(selected_aom_indices)} sites d'AOM(s) sélectionné(s)")
 
 # init crawler event loop
-if "loop" not in st.session_state:
-    st.session_state.loop = asyncio.new_event_loop()
+st.session_state.loop = get_event_loop()
 
 if st.button(
     "🚀 Lancer le traitement batch", type="primary", use_container_width=True
