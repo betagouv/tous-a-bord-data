@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 nest_asyncio.apply()
 
 from constants.keywords import DEFAULT_KEYWORDS
-from models.grist_models import AomTags
 from services.batch_tag_extraction import BatchProcessor
 from services.grist_service import GristDataService
 from services.llm_services import LLM_MODELS
@@ -132,11 +131,11 @@ st.subheader(
 )
 
 try:
-    if "aoms_data" not in st.session_state:
-        st.session_state.aoms_data = asyncio.run(fetch_aoms_from_grist())
+    if "aoms_tags_data" not in st.session_state:
+        st.session_state.aoms_tags_data = asyncio.run(fetch_aoms_from_grist())
 except Exception as e:
     st.error(f"Erreur lors du chargement des données: {str(e)}")
-    st.session_state.aoms_data = pd.DataFrame()
+    st.session_state.aoms_tags_data = pd.DataFrame()
 
 # Search bar
 search_term = st.text_input(
@@ -145,7 +144,7 @@ search_term = st.text_input(
 )
 
 # Filter the data
-filtered_df = filter_dataframe(st.session_state.aoms_data, search_term)
+filtered_df = filter_dataframe(st.session_state.aoms_tags_data, search_term)
 
 # Display the number of results
 nb_results = len(filtered_df)
